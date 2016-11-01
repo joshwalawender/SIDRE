@@ -13,7 +13,7 @@ log.disable_warnings_logging()
 
 import sort
 
-def determine_shutter_correction_map(filepath):
+def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
     image_table = sort.sort(filepath)
     bycat = image_table.group_by('CATEGORY')
 
@@ -70,18 +70,18 @@ def determine_shutter_correction_map(filepath):
     SF = beta_ij / alpha_ij  # SF = -t_SH * (1-SH_ij) in the paper terminology
     delta_SF = np.sqrt( (alpha_ij**-1 * delta_beta)**2 + 
                         (beta_ij * alpha_ij**-2 * delta_alpha)**2 )
-    SFF = median_filter(SF, size=(25, 25))
+    SNR = abs(SF)/delta_SF
+    ShutterMap = ccd.CCDData(data=SF, uncertainty=delta_SF, unit=u.second,
+                             meta={'SNR': np.mean(SNR)})
 
-    from astropy.io import fits
-    fits_file = 'SFF.fits'
-    if os.path.exists(fits_file):
-        os.remove(fits_file)
-    hdup = fits.PrimaryHDU(SF)
-    hdus = fits.ImageHDU(delta_SF)
-    hdul = fits.HDUList([hdup, hdus])
-    hdul.writeto(fits_file)
+    if output:
+        if os.path.exists(output):
+            os.remove(output)
+        ccd.fits_ccddata_writer(ShutterMap, output)
+
+    return ShutterMap
 
 
 if __name__ == '__main__':
-    filepath = '/Users/vysosuser/ShutterMap/V5'
+    filepath = '/Users/vysosuser/ShutterMap/V5/20161027UT'
     determine_shutter_correction_map(filepath)
