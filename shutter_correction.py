@@ -13,10 +13,13 @@ log.disable_warnings_logging()
 
 import sort
 
-def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
+def determine_shutter_correction_map(filepath, output='ShutterMap.fits',
+              gain=1.6):
     image_table = sort.sort(filepath)
     bycat = image_table.group_by('CATEGORY')
 
+    assert 'Bias' in set(image_table['CATEGORY'])
+    assert 'Flat' in set(image_table['CATEGORY'])
     bias_table = bycat.groups[bycat.groups.keys['CATEGORY'] == b'Bias']
     flat_table = bycat.groups[bycat.groups.keys['CATEGORY'] == b'Flat']
 
@@ -35,13 +38,18 @@ def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
         ## Combine each group of flats with same exposure times
         files = [os.path.join(x['DIR'].decode('utf8'), x['file'])
                  for x in thisexptime]
-        images = [ccd.fits_ccddata_reader(f, unit='adu') for f in files]
-        images = [ccd.subtract_bias(im, master_bias) for im in images]
-        combined_flat = ccd.combine(images, method='average', sigma_clip=True,
-                                    sigma_clip_low_thresh=5,
-                                    sigma_clip_high_thresh=5)
-        flats.append(combined_flat)
-        assert combined_flat.shape == flats[0].shape
+        if len(files) > 1:
+            images = [ccd.fits_ccddata_reader(f, unit='adu') for f in files]
+            images = [ccd.subtract_bias(im, master_bias) for im in images]
+            sigma_clip = len(files) > 5
+            combined_flat = ccd.combine(images, method='average',
+                                        sigma_clip=sigma_clip,
+                                        sigma_clip_low_thresh=5,
+                                        sigma_clip_high_thresh=5)
+            flats.append(combined_flat)
+            assert combined_flat.shape == flats[0].shape
+        else:
+            flats.append(ccd.fits_ccddata_reader(files[0], unit='adu'))
 
     def nflat(flat, delta=25):
         nl, nc = flat.data.shape
@@ -49,7 +57,6 @@ def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
         nflat = flat.data / normalization_factor
         return nflat
 
-    gain = 1.6
     a = gain*np.sum([nflat(f) for f in flats])
     b = gain*np.sum([nflat(f)/float(f.header['EXPTIME']) for f in flats])
     c = gain*np.sum([nflat(f)/float(f.header['EXPTIME'])**2 for f in flats])
@@ -70,9 +77,10 @@ def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
     SF = beta_ij / alpha_ij  # SF = -t_SH * (1-SH_ij) in the paper terminology
     delta_SF = np.sqrt( (alpha_ij**-1 * delta_beta)**2 + 
                         (beta_ij * alpha_ij**-2 * delta_alpha)**2 )
-    SNR = abs(SF)/delta_SF
+    SNR = np.mean(abs(SF)/delta_SF)
+    print('Typical pixel SNR of correction = {:.1f}'.format(SNR))
     ShutterMap = ccd.CCDData(data=SF, uncertainty=delta_SF, unit=u.second,
-                             meta={'SNR': np.mean(SNR)})
+                     meta={'SNR': (SNR, 'Mean signal to noise per pixel')})
 
     if output:
         if os.path.exists(output):
@@ -83,5 +91,9 @@ def determine_shutter_correction_map(filepath, output='ShutterMap.fits'):
 
 
 if __name__ == '__main__':
-    filepath = '/Users/vysosuser/ShutterMap/V5/20161027UT'
-    determine_shutter_correction_map(filepath)
+#     filepath = '/Users/vysosuser/ShutterMap/V5/20161027UT'
+#     determine_shutter_correction_map(filepath)
+
+    filepath = ['/Volumes/Drobo/V5/Images/20161025UT/AutoFlat',
+                '/Volumes/Drobo/V5/Images/20161025UT/Calibration']
+    determine_shutter_correction_map(filepath, output='ShutterMap_twi.fits')
