@@ -1,0 +1,12 @@
+---
+Default: False
+TemperatureDeadband: 0.5
+ShutterMapFile: '~/ShutterMap.fits'
+NightlyFlatsDir: 'AutoFlat'
+NightlyCalsDir: 'Calibration'
+NightlyImageDir: '.'
+MasterFilesDir: '/Volumes/Drobo/V5/Master'
+FlatsWindow: 20 # Half width of window (in days) for which flats are considered
+                # relevant to a particular observation date
+CalsWindow: 30  # Half width of window (in days) for which biases and darks are
+                # considered relevant to a particular observation date

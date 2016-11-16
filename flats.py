@@ -13,10 +13,12 @@ from astropy import log
 log.setLevel('WARNING')
 log.disable_warnings_logging()
 
+from SIDRE.config import get_config
+import SIDRE
+
 
 
 
 if __name__ == '__main__':
-    import sort
     filepath = '/Users/vysosuser/ShutterMap/V5/20160723UT/'
-    image_table = sort.sort(filepath)
+    files = SIDRE.sort.get_ImageFileCollection(filepath)
