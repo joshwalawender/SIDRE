@@ -7,6 +7,7 @@ import numpy as np
 from astropy.io import fits
 import astropy.units as u
 import ccdproc
+from ccdproc import fits_ccddata_reader as ccdread
 
 from .config import get_config
 from .sort import *
@@ -31,10 +32,9 @@ def make_master_bias(date):
 
     print('Combining {:d} files in to master bias'.format(len(bias_files)))
     try:
-        bias_images = [ccdproc.fits_ccddata_reader(bf) for bf in bias_files]
+        bias_images = [ccdread(f) for f in bias_files]
     except ValueError:
-        bias_images = [ccdproc.fits_ccddata_reader(bf, unit='adu')
-                       for bf in bias_files]
+        bias_images = [ccdread(f, unit='adu') for f in bias_files]
     master_bias = ccdproc.combine(bias_images, combine='median')
 
     # Update header
@@ -47,4 +47,47 @@ def make_master_bias(date):
     mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias_'),
                                date)
     print('Writing {}'.format(mbfn))
-    ccdproc.fits.ccddata_writer(master_bias, mbfn)
+    ccdproc.fits_ccddata_writer(master_bias, mbfn)
+
+    return master_bias
+
+
+def make_master_dark(date, master_bias):
+    config = get_config()
+    date_dto = dt.strptime(date, '%Y%m%dUT')
+    one_day = tdelta(1)
+
+    dark_root = config.get('DarkPath', os.path.abspath('.'))
+    dark_root = os.path.expanduser(dark_root)
+    dark_root = os.path.abspath(dark_root)
+
+    dark_files = []
+    for i in np.arange(config['CalsWindow']):
+        this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
+        dark_path = dark_root.replace('[YYYYMMDDUT]', this_day)
+        if os.path.exists(dark_path):
+            image_table = get_image_table(dark_path, 'Dark')
+            new_files = [os.path.join(dark_path, fn) for fn in image_table['file']]
+            dark_files.extend(new_files)
+
+    print('Combining {:d} files in to master dark'.format(len(dark_files)))
+    try:
+        dark_images = [ccdread(f).subtract_bias(master_bias)
+                       for f in dark_files]
+    except ValueError:
+        dark_images = [ccdread(f, unit='adu').subtract_bias(master_bias)
+                       for f in dark_files]
+    
+    master_dark = ccdproc.combine(dark_images, combine='median')
+
+    # Update header
+    master_dark.header.add_history(
+           '{:d} files combined to make master dark'.format(len(dark_files)))
+    for f in dark_files:
+        master_dark.header.add_history(' {}'.format(f))
+
+    # Write master dark to file
+    mbfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark_'),
+                               date)
+    print('Writing {}'.format(mbfn))
+    ccdproc.fits.ccddata_writer(master_dark, mbfn)
