@@ -30,7 +30,6 @@ def get_master_file(date, type='Bias'):
     mfile = '{}{}.fits'.format(mfileroot, date)
     if os.path.exists(os.path.join(mp, mfile)):
         master = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile))
-        master.
         master.header.set('FILENAME', value=mfile, comment='File name')
     else:
         master = None
