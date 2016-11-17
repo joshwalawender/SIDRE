@@ -58,8 +58,3 @@ def get_image_table(filepath, type):
     typelist = bytype.groups[bytype.groups.keys['CATEGORY'] == type]
     return typelist
 
-
-if __name__ == '__main__':
-    filepath = '/Volumes/Drobo/V5/Images/20161023UT'
-    files = get_ImageFileCollection(filepath)
-    print(files)
