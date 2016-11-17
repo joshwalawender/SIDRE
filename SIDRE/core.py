@@ -7,6 +7,7 @@ import astropy.units as u
 import ccdproc
 
 from .config import get_config
+from .calibration import *
 
 
 def get_image_date(im, datekw='DATE-OBS', datefmt='%Y-%m-%dT%H:%M:%S'):

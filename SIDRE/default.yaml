@@ -1,16 +1,20 @@
 ---
+Gain: 1.6
+RN: 10.0
 TemperatureDeadband: 0.5
 RawFileExt: 0
+
 MasterPath: '/Volumes/Drobo/V5/Master'
 MasterBiasRootName: 'MasterBias_'
 MasterDarkRootName: 'MasterDark_'
 MasterFlatRootName: 'MasterFlat_'
 MasterShutterMapRootName: 'ShutterMap_'
 
-Gain: 1.6
-RN: 10.0
+BiasPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
+DarkPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
+FlatPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/AutoFlat'
+CalsWindow: 30  # Size of window (in days) prior to an image's date for which
+                # biases and darks are considered relevant to that image
+FlatsWindow: 10 # Size of window (in days) prior to an image's date for which
+                # flats are considered relevant to that image
 
-FlatsWindow: 10 # Half width of window (in days) for which flats are considered
-                # relevant to a particular observation date
-CalsWindow: 20  # Half width of window (in days) for which biases and darks are
-                # considered relevant to a particular observation date
