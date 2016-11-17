@@ -6,7 +6,7 @@ import ccdproc as ccd
 import astropy.units as u
 from astropy import table
 
-from SIDRE.config import get_config
+from .config import get_config
 
 def get_ImageFileCollection(filepath):
     '''
@@ -52,6 +52,11 @@ def get_ImageFileCollection(filepath):
     return ifc
 
 
+def get_image_table(filepath, type):
+    ifc = get_ImageFileCollection(filepath)
+    bytype = ifc.summary.group_by('CATEGORY')
+    typelist = bytype.groups[bytype.groups.keys['CATEGORY'] == type]
+    return typelist
 
 
 if __name__ == '__main__':
