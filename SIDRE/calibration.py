@@ -44,7 +44,7 @@ def make_master_bias(date):
         master_bias.header.add_history(' {}'.format(f))
 
     # Write master bias to file
-    mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias_'),
+    mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias'),
                                date)
     print('Writing {}'.format(mbfn))
     ccdproc.fits_ccddata_writer(master_bias, mbfn)
@@ -87,7 +87,7 @@ def make_master_dark(date, master_bias):
         master_dark.header.add_history(' {}'.format(f))
 
     # Write master dark to file
-    mbfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark_'),
+    mbfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark'),
                                date)
     print('Writing {}'.format(mbfn))
     ccdproc.fits.ccddata_writer(master_dark, mbfn)

@@ -5,10 +5,10 @@ TemperatureDeadband: 0.5
 RawFileExt: 0
 
 MasterPath: '/Volumes/Drobo/V5/Master'
-MasterBiasRootName: 'MasterBias_'
-MasterDarkRootName: 'MasterDark_'
-MasterFlatRootName: 'MasterFlat_'
-MasterShutterMapRootName: 'ShutterMap_'
+MasterBiasRootName: 'MasterBias'
+MasterDarkRootName: 'MasterDark'
+MasterFlatRootName: 'MasterFlat'
+MasterShutterMapRootName: 'ShutterMap'
 
 BiasPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 DarkPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
