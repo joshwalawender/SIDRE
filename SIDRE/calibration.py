@@ -31,10 +31,20 @@ def make_master_bias(date):
             bias_files.extend(new_files)
 
     print('Combining {:d} files in to master bias'.format(len(bias_files)))
-    try:
-        bias_images = [ccdread(f) for f in bias_files]
-    except ValueError:
-        bias_images = [ccdread(f, unit='adu') for f in bias_files]
+    bias_images = []
+    for bias_file in bias_files:
+        try:
+            bias_image = ccdread(bias_file)
+        except ValueError:
+            bias_image = ccdread(bias_file, unit='adu')
+        # Estimate uncertainty as read noise
+        readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
+        try:
+            readnoise.value_from(bias_image.header)
+        except KeyError:
+            readnoise.value = config.get('RN', 10.0)
+        bias_image.uncertainty = np.ones(bias_image.data.shape) * readnoise.value
+
     master_bias = ccdproc.combine(bias_images, combine='median')
 
     # Update header
@@ -52,7 +62,7 @@ def make_master_bias(date):
     return master_bias
 
 
-def make_master_dark(date, master_bias):
+def make_master_dark(date, master_bias=None):
     config = get_config()
     date_dto = dt.strptime(date, '%Y%m%dUT')
     one_day = tdelta(1)
@@ -71,12 +81,18 @@ def make_master_dark(date, master_bias):
             dark_files.extend(new_files)
 
     print('Combining {:d} files in to master dark'.format(len(dark_files)))
-    try:
-        dark_images = [ccdread(f).subtract_bias(master_bias)
-                       for f in dark_files]
-    except ValueError:
-        dark_images = [ccdread(f, unit='adu').subtract_bias(master_bias)
-                       for f in dark_files]
+    if master_bias:
+        try:
+            dark_images = [ccdread(f).subtract_bias(master_bias)
+                           for f in dark_files]
+        except ValueError:
+            dark_images = [ccdread(f, unit='adu').subtract_bias(master_bias)
+                           for f in dark_files]
+    else:
+        try:
+            dark_images = [ccdread(f) for f in dark_files]
+        except ValueError:
+            dark_images = [ccdread(f, unit='adu') for f in dark_files]
     
     master_dark = ccdproc.combine(dark_images, combine='median')
 
