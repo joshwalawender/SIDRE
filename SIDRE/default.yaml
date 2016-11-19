@@ -13,7 +13,7 @@ MasterShutterMapRootName: 'ShutterMap'
 BiasPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 DarkPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 FlatPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/AutoFlat'
-CalsWindow: 10  # Size of window (in days) prior to an image's date for which
+CalsWindow: 5   # Size of window (in days) prior to an image's date for which
                 # biases and darks are considered relevant to that image
 FlatsWindow: 10 # Size of window (in days) prior to an image's date for which
                 # flats are considered relevant to that image

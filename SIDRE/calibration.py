@@ -8,11 +8,12 @@ from astropy.io import fits
 import astropy.units as u
 import ccdproc
 from ccdproc import fits_ccddata_reader as ccdread
+from astropy.nddata import StdDevUncertainty
 
 from .config import get_config
 from .sort import *
 
-def make_master_bias(date):
+def make_master_bias(date, clobber=True):
     config = get_config()
     date_dto = dt.strptime(date, '%Y%m%dUT')
     one_day = tdelta(1)
@@ -22,6 +23,7 @@ def make_master_bias(date):
     bias_root = os.path.abspath(bias_root)
 
     bias_files = []
+    # Collect filenames of bias files within time window
     for i in np.arange(config['CalsWindow']):
         this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
         bias_path = bias_root.replace('[YYYYMMDDUT]', this_day)
@@ -33,17 +35,19 @@ def make_master_bias(date):
     print('Combining {:d} files in to master bias'.format(len(bias_files)))
     bias_images = []
     for bias_file in bias_files:
+        print('  Reading: {}'.format(bias_file))
         try:
-            bias_image = ccdread(bias_file)
+            bias_image = ccdread(bias_file, verify=True)
         except ValueError:
-            bias_image = ccdread(bias_file, unit='adu')
+            bias_image = ccdread(bias_file, unit='adu', verify=True)
         # Estimate uncertainty as read noise
         readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
         try:
             readnoise.value_from(bias_image.header)
         except KeyError:
-            readnoise.value = config.get('RN', 10.0)
-        bias_image.uncertainty = np.ones(bias_image.data.shape) * readnoise.value
+            readnoise.value = config.get('RN')
+        bias_image.uncertainty = StdDevUncertainty(np.ones(bias_image.data.shape) * readnoise.value)
+        bias_images.append(bias_image)
 
     master_bias = ccdproc.combine(bias_images, combine='median')
 
@@ -57,6 +61,8 @@ def make_master_bias(date):
     mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias'),
                                date)
     print('Writing {}'.format(mbfn))
+    if clobber and os.path.exists(mbfn):
+        os.remove(mbfn)
     ccdproc.fits_ccddata_writer(master_bias, mbfn)
 
     return master_bias
@@ -81,19 +87,32 @@ def make_master_dark(date, master_bias=None):
             dark_files.extend(new_files)
 
     print('Combining {:d} files in to master dark'.format(len(dark_files)))
-    if master_bias:
+    dark_images = []
+    for dark_file in dark_files:
+        print('  Reading: {}'.format(dark_file))
         try:
-            dark_images = [ccdread(f).subtract_bias(master_bias)
-                           for f in dark_files]
+            dark_image = ccdread(dark_file, verify=True)
         except ValueError:
-            dark_images = [ccdread(f, unit='adu').subtract_bias(master_bias)
-                           for f in dark_files]
-    else:
+            dark_image = ccdread(dark_file, unit='adu', verify=True)
+        if master_bias:
+            dark_image = ccdproc.subtract_bias(dark_image, master_bias)
+
+        # Estimate uncertainty
+        readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
         try:
-            dark_images = [ccdread(f) for f in dark_files]
-        except ValueError:
-            dark_images = [ccdread(f, unit='adu') for f in dark_files]
-    
+            readnoise.value_from(dark_image.header)
+        except KeyError:
+            readnoise.value = config.get('RN')
+        gain = ccdproc.Keyword('GAIN', unit=u.electron)
+        try:
+            gain.value_from(dark_image.header)
+        except KeyError:
+            gain.value = config.get('GAIN')
+
+        dark_image.uncertainty = ccdproc.create_deviation(ccd_data, gain=gain,
+                                         readnoise=readnoise)
+        dark_images.append(dark_image)
+
     master_dark = ccdproc.combine(dark_images, combine='median')
 
     # Update header

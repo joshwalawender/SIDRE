@@ -79,17 +79,19 @@ def analyze_image(file,
     try:
         gain.value_from(im.header)
     except KeyError:
-        gain.value = config.get('Gain', 1.0)
+        gain.value = config.get('Gain')
 
     readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
     try:
         readnoise.value_from(im.header)
     except KeyError:
-        readnoise.value = config.get('RN', 10.0)
+        readnoise.value = config.get('RN')
 
     im = ccdproc.gain_correct(im, gain)
-    uncertainty = ccdproc.create_deviation(im, readnoise=readnoise)
-    im.uncertainty = uncertainty
+    im.uncertainty = ccdproc.create_deviation(im, gain=gain, readnoise=readnoise)
+
+    if shutter_map:
+        ccdproc.apply_shutter_map(image, shutter_map)
 
     if master_flat:
         ccdproc.flat_correct(im, master_flat, add_keyword=None)
