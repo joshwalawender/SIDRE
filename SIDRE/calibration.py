@@ -14,13 +14,16 @@ from .config import get_config
 from .sort import *
 
 def make_master_bias(date, clobber=True):
+    '''
+    Given a date string (in YYYYMMDDUT format), collect files which should be
+    used to make a master bias file and then combine them to make the master
+    bias.
+    '''
     config = get_config()
     date_dto = dt.strptime(date, '%Y%m%dUT')
     one_day = tdelta(1)
 
     bias_root = config.get('BiasPath', os.path.abspath('.'))
-    bias_root = os.path.expanduser(bias_root)
-    bias_root = os.path.abspath(bias_root)
 
     bias_files = []
     # Collect filenames of bias files within time window
@@ -74,8 +77,6 @@ def make_master_dark(date, master_bias=None):
     one_day = tdelta(1)
 
     dark_root = config.get('DarkPath', os.path.abspath('.'))
-    dark_root = os.path.expanduser(dark_root)
-    dark_root = os.path.abspath(dark_root)
 
     dark_files = []
     for i in np.arange(config['CalsWindow']):
