@@ -1,7 +1,7 @@
 import os
 import yaml
 
-def get_config(config_file='SIDRE.yaml'):
+def get_config(config_file='~/SIDRE.yaml'):
     config_file = os.path.expanduser(config_file)
     if not os.path.exists(config_file):
         config = {'Default': True}
