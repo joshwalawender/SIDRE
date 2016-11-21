@@ -1,5 +1,6 @@
 import os
-
+import re
+from glob import glob
 from datetime import datetime as dt
 
 from astropy.io import fits
@@ -18,7 +19,7 @@ def get_image_date(im, datekw='DATE-OBS', datefmt='%Y-%m-%dT%H:%M:%S'):
     return dto.strftime('%Y%m%dUT')
 
 
-def get_master_file(date, type='Bias'):
+def get_master(date, type='Bias'):
     '''
     
     '''
@@ -35,6 +36,35 @@ def get_master_file(date, type='Bias'):
     else:
         master = None
     return master
+
+
+def get_master_shutter_map(date):
+    '''
+    '''
+    date_dto = dt.strptime(date, '%Y%m%dUT')
+    config = get_config()
+    mp = config.get('MasterPath', os.path.abspath('.'))
+    assert os.path.exists(mp)
+    mfileroot = config.get('MasterShutterMapRootName', 'ShutterMap_')
+    # Look for files with date name nearest to date being analyzed
+    shutter_map_files = glob(os.path.join(mp, '{}*.fits'.format(mfileroot))
+    if len(shutter_map_files) < 1:
+        return None
+    elif len(shutter_map_files) == 1:
+        mfile = shutter_map_files[0]
+    else:
+        dates = []
+        for file in shutter_map_files:
+            match = re.match('{}(\d{8}UT)\.fits', file)
+            if match:
+                filedate = dt.strptime(match.group(1), '%Y%m%dUT')
+                timediff = abs((date_dto - filedate).total_seconds())
+                dates.append((timediff, file))
+        dates.sort()
+        mfile = dates[0][1]
+    shutter_map = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
+    shutter_map.header.set('FILENAME', value=mfile, comment='File name')
+    return shutter_map
 
 
 def analyze_image(file,
@@ -57,7 +87,7 @@ def analyze_image(file,
     date = get_image_date(im, datekw=datekw, datefmt=datefmt)
 
     # Bias correct the image
-    master_bias = get_master_file(date, type='Bias')
+    master_bias = get_master(date, type='Bias')
     if master_bias:
         ccdproc.subtract_bias(im, master_bias, add_keyword=None)
         metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
@@ -68,7 +98,7 @@ def analyze_image(file,
                  comment='DATASUM of master bias file')
 
     # Dark correct the image
-    master_dark = get_master_file(date, type='Dark')
+    master_dark = get_master(date, type='Dark')
     if master_dark:
         ccdproc.subtract_dark(im, master_dark, add_keyword=None)
         metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
@@ -93,7 +123,7 @@ def analyze_image(file,
     im.uncertainty = ccdproc.create_deviation(im, gain=gain, readnoise=readnoise)
 
     # Shutter correct the image
-    shutter_map = get_master_file(date, type='ShutterMap')
+    shutter_map = get_master_shutter_map(date)
     if shutter_map:
         ccdproc.apply_shutter_map(image, shutter_map)
 
