@@ -22,7 +22,7 @@ def get_master_file(date, type='Bias'):
     '''
     
     '''
-    assert type in ['Bias', 'Dark', 'Flat', 'ShutterMap']
+    assert type in ['Bias', 'Dark', 'Flat']
     config = get_config()
     mp = config.get('MasterPath', os.path.abspath('.'))
     assert os.path.exists(mp)
@@ -30,7 +30,7 @@ def get_master_file(date, type='Bias'):
                            'Master{}_'.format(type))
     mfile = '{}{}.fits'.format(mfileroot, date)
     if os.path.exists(os.path.join(mp, mfile)):
-        master = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile))
+        master = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
         master.header.set('FILENAME', value=mfile, comment='File name')
     else:
         master = None
@@ -39,9 +39,12 @@ def get_master_file(date, type='Bias'):
 
 def analyze_image(file,
                   datekw='DATE-OBS', datefmt='%Y-%m-%dT%H:%M:%S'):
-    start_process = dt.utcnow()
+    '''
+    Run a single file through the processing and analysis steps.
+    '''
+    start_DR = dt.utcnow()
     metadata = fits.Header()
-    metadata.set('PSTART', value=start_process.iso(),
+    metadata.set('DRSTART', value=start_DR.iso(),
                  comment='UT time of start of analysis')
     
     config = get_config()
@@ -52,11 +55,9 @@ def analyze_image(file,
                      unit='adu')
 
     date = get_image_date(im, datekw=datekw, datefmt=datefmt)
-    master_bias = get_master_file(date, type='Bias')
-    master_dark = get_master_file(date, type='Dark')
-    master_flat = get_master_file(date, type='Flat')
-    shutter_map = get_master_file(date, type='ShutterMap')
 
+    # Bias correct the image
+    master_bias = get_master_file(date, type='Bias')
     if master_bias:
         ccdproc.subtract_bias(im, master_bias, add_keyword=None)
         metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
@@ -66,6 +67,8 @@ def analyze_image(file,
         metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
                  comment='DATASUM of master bias file')
 
+    # Dark correct the image
+    master_dark = get_master_file(date, type='Dark')
     if master_dark:
         ccdproc.subtract_dark(im, master_dark, add_keyword=None)
         metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
@@ -75,24 +78,27 @@ def analyze_image(file,
         metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
                  comment='DATASUM of master dark file')
 
+    # Gain correct the image
     gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
     try:
         gain.value_from(im.header)
     except KeyError:
         gain.value = config.get('Gain')
-
     readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
     try:
         readnoise.value_from(im.header)
     except KeyError:
         readnoise.value = config.get('RN')
-
     im = ccdproc.gain_correct(im, gain)
     im.uncertainty = ccdproc.create_deviation(im, gain=gain, readnoise=readnoise)
 
+    # Shutter correct the image
+    shutter_map = get_master_file(date, type='ShutterMap')
     if shutter_map:
         ccdproc.apply_shutter_map(image, shutter_map)
 
+    # Flat correct the image
+    master_flat = get_master_file(date, type='Flat')
     if master_flat:
         ccdproc.flat_correct(im, master_flat, add_keyword=None)
         metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
@@ -103,6 +109,12 @@ def analyze_image(file,
                  comment='DATASUM of master flat file')
 
 
+
+    end_DR = dt.utcnow()
+    metadata.set('DREND', value=end_DR.iso(),
+                 comment='UT time of start of analysis')
+
     for hdu in photometry:
-        hdu.add_checksum()
+        if 'CHECKSUM' not in hdu.header.keys():
+            hdu.add_checksum()
     return photometry
