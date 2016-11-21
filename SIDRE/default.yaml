@@ -1,8 +1,9 @@
 ---
-Gain: 1.6
-RN: 10.0
-TemperatureDeadband: 0.5
-RawFileExt: 0
+Gain: 1.6                  # in electroncs / ADU
+RN: 10.0                   # in electrons
+LinearityLimit: 30000      # in ADU
+TemperatureDeadband: 0.5   # in same units as are in header
+RawFileExt: 0              # FITS extension the data is expected to be in
 
 MasterPath: '/Volumes/Drobo/V5/Master'
 MasterBiasRootName: 'MasterBias'
