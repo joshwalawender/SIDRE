@@ -47,9 +47,9 @@ def get_master_shutter_map(date):
     assert os.path.exists(mp)
     mfileroot = config.get('MasterShutterMapRootName', 'ShutterMap_')
     # Look for files with date name nearest to date being analyzed
-    shutter_map_files = glob(os.path.join(mp, '{}*.fits'.format(mfileroot))
+    shutter_map_files = glob(os.path.join(mp, '{}*.fits'.format(mfileroot)))
     if len(shutter_map_files) < 1:
-        return None
+        mfile = None
     elif len(shutter_map_files) == 1:
         mfile = shutter_map_files[0]
     else:
@@ -62,8 +62,9 @@ def get_master_shutter_map(date):
                 dates.append((timediff, file))
         dates.sort()
         mfile = dates[0][1]
-    shutter_map = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
-    shutter_map.header.set('FILENAME', value=mfile, comment='File name')
+    if mfile:
+        shutter_map = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
+        shutter_map.header.set('FILENAME', value=mfile, comment='File name')
     return shutter_map
 
 
@@ -74,7 +75,7 @@ def analyze_image(file,
     '''
     start_DR = dt.utcnow()
     metadata = fits.Header()
-    metadata.set('DRSTART', value=start_DR.iso(),
+    metadata.set('DRSTART', value=start_DR.isoformat(),
                  comment='UT time of start of analysis')
     
     config = get_config()
@@ -119,16 +120,16 @@ def analyze_image(file,
         readnoise.value_from(im.header)
     except KeyError:
         readnoise.value = config.get('RN')
-    im = ccdproc.gain_correct(im, gain)
-    im.uncertainty = ccdproc.create_deviation(im, gain=gain, readnoise=readnoise)
+    im = ccdproc.gain_correct(im, gain.value)
+    im = ccdproc.create_deviation(im, readnoise=readnoise.value)
 
     # Shutter correct the image
     shutter_map = get_master_shutter_map(date)
     if shutter_map:
-        ccdproc.apply_shutter_map(image, shutter_map)
+        ccdproc.apply_shutter_map(im, shutter_map)
 
     # Flat correct the image
-    master_flat = get_master_file(date, type='Flat')
+    master_flat = get_master(date, type='Flat')
     if master_flat:
         ccdproc.flat_correct(im, master_flat, add_keyword=None)
         metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
@@ -140,11 +141,10 @@ def analyze_image(file,
 
 
 
+
+
     end_DR = dt.utcnow()
-    metadata.set('DREND', value=end_DR.iso(),
+    metadata.set('DREND', value=end_DR.isoformat(),
                  comment='UT time of start of analysis')
 
-    for hdu in photometry:
-        if 'CHECKSUM' not in hdu.header.keys():
-            hdu.add_checksum()
-    return photometry
+    print(metadata)
