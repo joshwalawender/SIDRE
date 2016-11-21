@@ -24,7 +24,6 @@ def make_master_bias(date, clobber=True):
     one_day = tdelta(1)
 
     bias_root = config.get('BiasPath', os.path.abspath('.'))
-
     bias_files = []
     # Collect filenames of bias files within time window
     for i in np.arange(config['CalsWindow']):
@@ -63,15 +62,21 @@ def make_master_bias(date, clobber=True):
     # Write master bias to file
     mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias'),
                                date)
-    print('Writing {}'.format(mbfn))
-    if clobber and os.path.exists(mbfn):
-        os.remove(mbfn)
-    ccdproc.fits_ccddata_writer(master_bias, mbfn)
+    mbf = os.path.join(config.get('MasterPath', '/'), mbfn)
+    print('Writing {}'.format(mbf))
+    if clobber and os.path.exists(mbf):
+        os.remove(mbf)
+    ccdproc.fits_ccddata_writer(master_bias, mbf, checksum=True)
 
     return master_bias
 
 
-def make_master_dark(date, master_bias=None):
+def make_master_dark(date, master_bias=None, clobber=True):
+    '''
+    Given a date string (in YYYYMMDDUT format), collect files which should be
+    used to make a master dark file and then combine them to make the master
+    dark.
+    '''
     config = get_config()
     date_dto = dt.strptime(date, '%Y%m%dUT')
     one_day = tdelta(1)
@@ -126,4 +131,4 @@ def make_master_dark(date, master_bias=None):
     mbfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark'),
                                date)
     print('Writing {}'.format(mbfn))
-    ccdproc.fits.ccddata_writer(master_dark, mbfn)
+    ccdproc.fits.ccddata_writer(master_dark, mbfn, checksum=True)
