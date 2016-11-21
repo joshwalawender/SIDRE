@@ -34,10 +34,11 @@ def make_master_bias(date, clobber=True):
             new_files = [os.path.join(bias_path, fn) for fn in image_table['file']]
             bias_files.extend(new_files)
 
-    print('Combining {:d} files in to master bias'.format(len(bias_files)))
+    nbiases = len(bias_files)
+    print('Combining {:d} files in to master bias'.format(nbiases))
     bias_images = []
-    for bias_file in bias_files:
-        print('  Reading: {}'.format(bias_file))
+    for i,bias_file in enumerate(bias_files):
+        print('  Reading {:d}/{:d}: {}'.format(i+1, nbiases, bias_file))
         try:
             bias_image = ccdread(bias_file, verify=True)
         except ValueError:
@@ -55,9 +56,9 @@ def make_master_bias(date, clobber=True):
 
     # Update header
     master_bias.header.add_history(
-           '{:d} files combined to make master bias'.format(len(bias_files)))
-    for f in bias_files:
-        master_bias.header.add_history(' {}'.format(f))
+           '{:d} files combined to make master bias'.format(nbiases))
+    for i,f in enumerate(bias_files):
+        master_bias.header.add_history('{:d}/{:d}: {}'.format(i, nbiases, os.path.basename(f)))
 
     # Write master bias to file
     mbfn = '{}_{}.fits'.format(config.get('MasterBiasRootName', 'MasterBias'),
@@ -92,10 +93,11 @@ def make_master_dark(date, master_bias=None, clobber=True):
             new_files = [os.path.join(dark_path, fn) for fn in image_table['file']]
             dark_files.extend(new_files)
 
-    print('Combining {:d} files in to master dark'.format(len(dark_files)))
+    ndarks = len(dark_files)
+    print('Combining {:d} files in to master dark'.format(ndarks))
     dark_images = []
-    for dark_file in dark_files:
-        print('  Reading: {}'.format(dark_file))
+    for i,dark_file in enumerate(dark_files):
+        print('  Reading {:d}/{:d}: {}'.format(i+1, ndarks, dark_file))
         try:
             dark_image = ccdread(dark_file, verify=True)
         except ValueError:
@@ -109,26 +111,31 @@ def make_master_dark(date, master_bias=None, clobber=True):
             readnoise.value_from(dark_image.header)
         except KeyError:
             readnoise.value = config.get('RN')
-        gain = ccdproc.Keyword('GAIN', unit=u.electron)
+        gain = ccdproc.Keyword('GAIN', unit=u.electron/u.adu)
         try:
             gain.value_from(dark_image.header)
         except KeyError:
-            gain.value = config.get('GAIN')
+            gain.value = config.get('Gain')
 
-        dark_image.uncertainty = ccdproc.create_deviation(ccd_data, gain=gain,
-                                         readnoise=readnoise)
+        dark_image = ccdproc.gain_correct(dark_image, gain.value)
+        dark_image = ccdproc.create_deviation(dark_image, readnoise=readnoise.value)
         dark_images.append(dark_image)
 
     master_dark = ccdproc.combine(dark_images, combine='median')
 
     # Update header
     master_dark.header.add_history(
-           '{:d} files combined to make master dark'.format(len(dark_files)))
-    for f in dark_files:
-        master_dark.header.add_history(' {}'.format(f))
+           '{:d} files combined to make master dark'.format(ndarks))
+    for i,f in enumerate(dark_files):
+        master_dark.header.add_history('{:d}/{:d}: {}'.format(i, ndarks, os.path.basename(f)))
 
     # Write master dark to file
-    mbfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark'),
+    mdfn = '{}_{}.fits'.format(config.get('MasterDarkRootName', 'MasterDark'),
                                date)
-    print('Writing {}'.format(mbfn))
-    ccdproc.fits.ccddata_writer(master_dark, mbfn, checksum=True)
+    mdf = os.path.join(config.get('MasterPath', '/'), mdfn)
+    print('Writing {}'.format(mdf))
+    if clobber and os.path.exists(mdf):
+        os.remove(mdf)
+    ccdproc.fits_ccddata_writer(master_dark, mdf, checksum=True)
+    
+    return master_dark
