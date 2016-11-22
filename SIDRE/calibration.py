@@ -12,7 +12,7 @@ from astropy.nddata import StdDevUncertainty
 
 from .config import get_config
 from . import sort
-from .core import get_master
+from .utils import *
 
 
 def make_master_bias(date, clobber=True):
@@ -128,8 +128,6 @@ def make_master_dark(date, clobber=True):
         dark_image = ccdproc.create_deviation(dark_image, readnoise=readnoise.value)
         # Scale to 1s Exposure time
         dark_image.divide(exptime.value)
-        dark_image.unit /= exptime.value.unit
-        exptime.value = 1.0 * u.second
         dark_image.header.set(exptimekw, 1.0)
         dark_images.append(dark_image)
 
