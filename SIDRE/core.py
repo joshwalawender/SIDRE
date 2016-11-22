@@ -1,5 +1,7 @@
 import os
+import sys
 import re
+import logging
 from glob import glob
 from datetime import datetime as dt
 
@@ -9,142 +11,178 @@ import ccdproc
 
 from .config import get_config
 from .calibration import *
+from .utils import *
 
 
-def get_image_date(im, datekw='DATE-OBS', datefmt='%Y-%m-%dT%H:%M:%S'):
+def preprocess_header(file):
+    with fits.open(file, 'update', verify=True) as hdul:
+        updated = False
+        if not 'RADESYSa' in hdul[0].header.keys()\
+           and 'RADECSYS' in hdul[0].header.keys():
+            hdul[0].header.set('RADESYSa', hdul[0].header['RADECSYS'])
+            updated = True
+        if not 'BUNIT' in hdul[0].header.keys():
+            hdul[0].header.set('BUNIT', 'adu')
+            updated = True
+        else:
+            if hdul[0].header['BUNIT'] == 'ADU':
+                hdul[0].header.set('BUNIT', 'adu')
+                updated = True
+        if updated:
+            hdul.flush()
+
+
+class ScienceImage(object):
     '''
-    Return string with the UT date of the image in YYYYMMDDUT format
     '''
-    dto = dt.strptime(im.header[datekw], datefmt)
-    return dto.strftime('%Y%m%dUT')
+    def __init__(self, file, preprocess_header=preprocess_header,
+                 logfile=None, verbose=False, unit='adu'):
+        assert os.path.exists(file)
+        self.file = file
+        self.filename = os.path.basename(file)
+        if preprocess_header:
+            preprocess_header
+        try:
+            self.ccd = ccdproc.fits_ccddata_reader(file, verify=True)
+        except ValueError:
+            self.ccd = ccdproc.fits_ccddata_reader(file, verify=True, unit=unit)
+
+        self.config = get_config()
+        self.datekw = self.config.get('DATE-OBS', 'DATE-OBS')
+        self.datefmt = self.config.get('DATEFMT', '%Y-%m-%dT%H:%M:%S')
+        self.image_date = None
+        self.date = self.get_image_date()
+        self.add_logger()
+        self.log.info('Processing File: {}'.format(self.filename))
 
 
-def get_master(date, type='Bias'):
-    '''
+
+
+    def add_logger(self, logfile=None, verbose=False):
+        '''Create a logger object to use with this image.  The logger object
+        will be available as self.log
+        
+        Parameters
+        ----------
+        logfile : file to write log to
+        
+        verbose : Defaults to False.  If verbose is true, it sets the logging
+            level to DEBUG (otherwise level is INFO).
+        '''
+        self.log = logging.getLogger(self.filename.replace('.', '_'))
+        if len(self.log.handlers) == 0:
+            self.log.setLevel(logging.DEBUG)
+            LogFormat = logging.Formatter('%(asctime)23s %(levelname)8s: %(message)s')
+            ## Log to a file
+            if logfile:
+                self.logfile = logfile
+                self.logfilename = os.path.split(self.logfile)[1]
+                if os.path.exists(logfile): os.remove(logfile)
+                LogFileHandler = logging.FileHandler(logfile)
+                LogFileHandler.setLevel(logging.DEBUG)
+                LogFileHandler.setFormatter(LogFormat)
+                self.log.addHandler(LogFileHandler)
+            ## Log to console
+            LogConsoleHandler = logging.StreamHandler(stream=sys.stdout)
+            if verbose:
+                LogConsoleHandler.setLevel(logging.DEBUG)
+            else:
+                LogConsoleHandler.setLevel(logging.INFO)
+            LogConsoleHandler.setFormatter(LogFormat)
+            self.log.addHandler(LogConsoleHandler)
+
+
+    def get_image_date(self):
+        '''
+        Return string with the UT date of the image in YYYYMMDDUT format
+        '''
+        self.image_date = dt.strptime(self.ccd.header[self.datekw], self.datefmt)
+        self.date = self.image_date.strftime('%Y%m%dUT')
+        return self.date
+
+
+
+    def analyze_image(self):
+        '''
+        Run the image through the processing and analysis steps.
+        '''
+        start_DR = dt.utcnow()
+        metadata = fits.Header()
+        metadata.set('DRSTART', value=start_DR.isoformat(),
+                     comment='UT time of start of analysis')
     
-    '''
-    assert type in ['Bias', 'Dark', 'Flat']
-    config = get_config()
-    mp = config.get('MasterPath', os.path.abspath('.'))
-    assert os.path.exists(mp)
-    mfileroot = config.get('Master{}RootName'.format(type),
-                           'Master{}_'.format(type))
-    mfile = '{}{}.fits'.format(mfileroot, date)
-    if os.path.exists(os.path.join(mp, mfile)):
-        master = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
-        master.header.set('FILENAME', value=mfile, comment='File name')
-    else:
-        master = None
-    return master
-
-
-def get_master_shutter_map(date):
-    '''
-    '''
-    date_dto = dt.strptime(date, '%Y%m%dUT')
-    config = get_config()
-    mp = config.get('MasterPath', os.path.abspath('.'))
-    assert os.path.exists(mp)
-    mfileroot = config.get('MasterShutterMapRootName', 'ShutterMap_')
-    # Look for files with date name nearest to date being analyzed
-    shutter_map_files = glob(os.path.join(mp, '{}*.fits'.format(mfileroot)))
-    if len(shutter_map_files) < 1:
-        mfile = None
-    elif len(shutter_map_files) == 1:
-        mfile = shutter_map_files[0]
-    else:
-        dates = []
-        for file in shutter_map_files:
-            match = re.match('{}(\d{8}UT)\.fits', file)
-            if match:
-                filedate = dt.strptime(match.group(1), '%Y%m%dUT')
-                timediff = abs((date_dto - filedate).total_seconds())
-                dates.append((timediff, file))
-        dates.sort()
-        mfile = dates[0][1]
-    if mfile:
-        shutter_map = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
-        shutter_map.header.set('FILENAME', value=mfile, comment='File name')
-    return shutter_map
-
-
-def analyze_image(file,
-                  datekw='DATE-OBS', datefmt='%Y-%m-%dT%H:%M:%S'):
-    '''
-    Run a single file through the processing and analysis steps.
-    '''
-    start_DR = dt.utcnow()
-    metadata = fits.Header()
-    metadata.set('DRSTART', value=start_DR.isoformat(),
-                 comment='UT time of start of analysis')
     
-    config = get_config()
-    try:
-        im = ccdproc.fits_ccddata_reader(file, ext=config.get('RawFileExt', 0))
-    except ValueError:
-        im = ccdproc.fits_ccddata_reader(file, ext=config.get('RawFileExt', 0),
-                     unit='adu')
+        # Bias correct the image
+        master_bias = get_master(self.date, type='Bias')
+        if master_bias:
+            print('Subtracting master bias')
+            self.ccd = ccdproc.subtract_bias(self.ccd, master_bias, add_keyword=None)
+            metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
+                     comment='Filename of master bias file')
+            metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
+                     comment='CHECKSUM of master bias file')
+            metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
+                     comment='DATASUM of master bias file')
 
-    date = get_image_date(im, datekw=datekw, datefmt=datefmt)
+        # Gain correct the image
+        gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
+        try:
+            gain.value_from(self.ccd.header)
+        except KeyError:
+            gain.value = self.config.get('Gain')
 
-    # Bias correct the image
-    master_bias = get_master(date, type='Bias')
-    if master_bias:
-        ccdproc.subtract_bias(im, master_bias, add_keyword=None)
-        metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
-                 comment='Filename of master bias file')
-        metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
-                 comment='CHECKSUM of master bias file')
-        metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
-                 comment='DATASUM of master bias file')
+        print('Gain correcting image')
+        self.ccd = ccdproc.gain_correct(self.ccd, gain.value)
 
-    # Dark correct the image
-    master_dark = get_master(date, type='Dark')
-    if master_dark:
-        ccdproc.subtract_dark(im, master_dark, add_keyword=None)
-        metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
-                 comment='Filename of master dark file')
-        metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
-                 comment='CHECKSUM of master dark file')
-        metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
-                 comment='DATASUM of master dark file')
+        # Dark correct the image
+        exptime = ccdproc.Keyword(self.config.get('EXPTIME', 'EXPTIME'),
+                                  unit=u.second)
+        exptime.value_from(self.ccd.header)
+        master_dark = get_master(self.date, type='Dark')
+        if master_dark:
+            print('Dark correcting image')
+            self.ccd = ccdproc.subtract_dark(self.ccd, master_dark,
+                           data_exposure=exptime.value,
+                           dark_exposure=1.0*u.second,
+                           scale=True,
+                           add_keyword=None)
+            metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
+                     comment='Filename of master dark file')
+            metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
+                     comment='CHECKSUM of master dark file')
+            metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
+                     comment='DATASUM of master dark file')
 
-    # Gain correct the image
-    gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
-    try:
-        gain.value_from(im.header)
-    except KeyError:
-        gain.value = config.get('Gain')
-    readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
-    try:
-        readnoise.value_from(im.header)
-    except KeyError:
-        readnoise.value = config.get('RN')
-    im = ccdproc.gain_correct(im, gain.value)
-    im = ccdproc.create_deviation(im, readnoise=readnoise.value)
+#         readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
+#         try:
+#             readnoise.value_from(self.ccd.header)
+#         except KeyError:
+#             readnoise.value = self.config.get('RN')
+#         print('Estimating uncertainty')
+#         self.ccd = ccdproc.create_deviation(self.ccd, readnoise=readnoise.value)
 
-    # Shutter correct the image
-    shutter_map = get_master_shutter_map(date)
-    if shutter_map:
-        ccdproc.apply_shutter_map(im, shutter_map)
+        # Shutter correct the image
+        shutter_map = get_master_shutter_map(self.date)
+        if shutter_map:
+            print('Applying shutter map')
+            self.ccd = ccdproc.apply_shutter_map(self.ccd, shutter_map)
 
-    # Flat correct the image
-    master_flat = get_master(date, type='Flat')
-    if master_flat:
-        ccdproc.flat_correct(im, master_flat, add_keyword=None)
-        metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
-                 comment='Filename of master flat file')
-        metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
-                 comment='CHECKSUM of master flat file')
-        metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
-                 comment='DATASUM of master flat file')
+        # Flat correct the image
+        master_flat = get_master(self.date, type='Flat')
+        if master_flat:
+            print('Flat fielding image')
+            self.ccd = ccdproc.flat_correct(im, master_flat, add_keyword=None)
+            metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
+                     comment='Filename of master flat file')
+            metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
+                     comment='CHECKSUM of master flat file')
+            metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
+                     comment='DATASUM of master flat file')
 
+        end_DR = dt.utcnow()
+        metadata.set('DREND', value=end_DR.isoformat(),
+                     comment='UT time of start of analysis')
 
+        for key in metadata.keys():
+            print(key, metadata[key])
 
-
-
-    end_DR = dt.utcnow()
-    metadata.set('DREND', value=end_DR.isoformat(),
-                 comment='UT time of start of analysis')
-
-    print(metadata)
