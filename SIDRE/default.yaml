@@ -5,11 +5,15 @@ LinearityLimit: 30000      # in ADU
 TemperatureDeadband: 0.5   # in same units as are in header
 RawFileExt: 0              # FITS extension the data is expected to be in
 
+EXPTIME: 'EXPTIME'    # Header keyword with the exposure time value in seconds
+DATE-OBS: 'DATE-OBS'  # Header keyword with the date the image was acquired
+DATEFMT: '%Y-%m-%dT%H:%M:%S' # The python datetime format of the DATE-OBS value
+
 MasterPath: '/Volumes/Drobo/V5/Master'
-MasterBiasRootName: 'MasterBias'
-MasterDarkRootName: 'MasterDark'
-MasterFlatRootName: 'MasterFlat'
-MasterShutterMapRootName: 'ShutterMap'
+MasterBiasRootName: 'MasterBias_'
+MasterDarkRootName: 'MasterDark_'
+MasterFlatRootName: 'MasterFlat_'
+MasterShutterMapRootName: 'ShutterMap_'
 
 BiasPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 DarkPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
