@@ -50,7 +50,8 @@ class ScienceImage(object):
         assert os.path.exists(file)
         self.file = file
         self.filename = os.path.basename(file)
-        self.fileroot = os.path.splitext(self.filename)[0]
+        # Do splitext twice to hanfle .fits.fz extensions
+        self.fileroot = os.path.splitext(os.path.splitext(self.filename)[0])[0]
 #         if preprocess_header:
 #             preprocess_header(self.file)
         try:
@@ -281,11 +282,13 @@ class ScienceImage(object):
         if self.header_pointing:
             cmd.extend(['-3', '{:.4f}'.format(self.header_pointing.ra.degree)])
             cmd.extend(['-4', '{:.4f}'.format(self.header_pointing.dec.degree)])
+        self.log.info('Calling: {}'.format(' '.join(cmd)))
         cmd.append(tfile)
         fail = subprocess.call(cmd)
         solved_file = os.path.join(tdir, '{}.solved'.format(self.fileroot))
         wcs_file = os.path.join(tdir, '{}.wcs'.format(self.fileroot))
-        if not fail and os.path.exists(solved_file) and os.path.exists(wcs_file):
+        new_wcs = None
+        if not bool(fail):
             new_wcs = wcs.WCS(wcs_file)
             if new_wcs.is_celestial:
                 self.ccd.wcs = new_wcs
@@ -296,8 +299,10 @@ class ScienceImage(object):
         # Cleanup temporary directory
         tfiles = glob(os.path.join(tdir, '*'))
         for tf in tfiles:
+            print(tf)
             os.remove(tf)
         os.rmdir(tdir)
+        return new_wcs
         
         
     def get_wcs_pointing(self):
@@ -307,7 +312,7 @@ class ScienceImage(object):
         in the `ccd.wcs` property.
         '''
         equinox = self.config.get('Equinox', 2000.0)
-        if type(equinox) is str:
+        if equinox in self.ccd.header.keys():
             equinox = self.ccd.header[equinox]
         if not self.ccd.wcs:
             self.wcs_pointing = None
@@ -317,7 +322,7 @@ class ScienceImage(object):
             r, d = self.ccd.wcs.all_pix2world([nx/2.], [ny/2.], 1)
             self.wcs_pointing = c.SkyCoord(r[0], d[0], frame=coord_frame,
                                            unit=(u.deg, u.deg),
-                                           equinox=equinox,
+                                           equinox='J2000',
                                            obstime=self.obstime)
         if self.loc and self.wcs_pointing:
             self.wcs_altaz = self.wcs_pointing.transform_to(self.altazframe)
@@ -359,9 +364,65 @@ class ScienceImage(object):
         self.ccd.header.add_history('  fthresh={:f}'.format(sbc.get('fthresh', 0)))
     
     
-    def render_jpeg(self, jpegfilename=None):
+    def get_UCAC4(self):
+        if not self.header_pointing:
+            self.get_header_pointing()
+        if not self.wcs_pointing:
+            self.get_wcs_pointing()
+        if self.wcs_pointing:
+            pointing = self.wcs_pointing
+        elif im.header_pointing:
+            pointing = self.wcs_pointing
+        else:
+            return None
+        from astroquery.vizier import Vizier
+        from astropy.coordinates import Angle
+
+        v = Vizier(columns=['_RAJ2000', '_DEJ2000','imag'],
+                   column_filters={"imag":">0"})
+        v.ROW_LIMIT = 1e5
+
+        fp = self.ccd.wcs.calc_footprint(axes=self.ccd.data.shape)
+        dra = fp[:,0].max() - fp[:,0].min()
+        ddec = fp[:,1].max() - fp[:,1].min()
+        radius = np.sqrt( (dra*np.cos(fp[:,1].mean()*np.pi/180.))**2 + ddec**2 )/2.
+        catalog = v.query_region(self.header_pointing, catalog='I/322A',
+                                 radius=Angle(radius, "deg") )[0]
+
+        if self.ccd.wcs:
+            x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'], catalog['_DEJ2000'], 1)
+            w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
+            catalog = catalog[w]
+
+        return catalog
+    
+    def render_jpeg(self, jpegfilename=None, binning=1,
+                    overplot_UCAC4=False):
         '''
         '''
         if not jpegfilename:
-            jpegfilename = '{}.jpg'.format(os.path.basename(self.filename))
+            jpegfilename = '{}.jpg'.format(self.fileroot)
+        import matplotlib as mpl
+        from matplotlib import pyplot as plt
+        vmin = np.percentile(self.ccd.data, 0.5)
+        vmax = np.percentile(self.ccd.data, 99.0)
+        dpi=72
+        nx, ny = self.ccd.data.shape
+        sx = nx/dpi/binning
+        sy = ny/dpi/binning
+        fig = plt.figure(figsize=(sx, sy), dpi=dpi)
+        ax = fig.gca()
+        plt.imshow(self.ccd.data, cmap='gray', vmin=vmin, vmax=vmax)
+        plt.xticks([])
+        plt.yticks([])
+
+        if overplot_UCAC4:
+            UCAC4 = self.get_UCAC4()
+            x, y = self.ccd.wcs.all_world2pix(UCAC4['_RAJ2000'], UCAC4['_DEJ2000'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=5, edgecolor='r', facecolor='none')
+                ax.add_artist(c)
+
+        plt.savefig(jpegfilename, dpi=dpi)
+        
     
