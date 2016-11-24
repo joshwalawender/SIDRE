@@ -10,10 +10,11 @@ if sys.version_info.major == 2:
 elif sys.version_info.major == 3:
     import subprocess
 
-from astropy.io import fits
-from astropy import wcs
 import astropy.units as u
 import astropy.coordinates as c
+from astropy.time import Time
+from astropy.io import fits
+from astropy import wcs
 import ccdproc
 import sep
 
@@ -23,6 +24,7 @@ from .utils import *
 
 
 def preprocess_header(file):
+    print('Fixing header')
     with fits.open(file, 'update', verify=True) as hdul:
         updated = False
         if not 'RADESYSa' in hdul[0].header.keys()\
@@ -49,8 +51,8 @@ class ScienceImage(object):
         self.file = file
         self.filename = os.path.basename(file)
         self.fileroot = os.path.splitext(self.filename)[0]
-        if preprocess_header:
-            preprocess_header
+#         if preprocess_header:
+#             preprocess_header(self.file)
         try:
             self.ccd = ccdproc.fits_ccddata_reader(file, verify=True)
         except ValueError:
@@ -59,13 +61,28 @@ class ScienceImage(object):
         self.config = get_config()
         self.datekw = self.config.get('DATE-OBS', 'DATE-OBS')
         self.datefmt = self.config.get('DATEFMT', '%Y-%m-%dT%H:%M:%S')
-        self.image_date = None
-        self.date = self.get_image_date()
+        self.obstime = None
+        self.date = self.get_date()
         self.add_logger()
         self.log.info('Processing File: {}'.format(self.filename))
 
         self.header_pointing = None
         self.wcs_pointing = None
+        self.altaz = None
+        try:
+            lat = c.Latitude(self.config.get('Latitude') * u.degree)
+            lon = c.Longitude(self.config.get('Longitude') * u.degree)
+            height = self.config.get('Elevation') * u.meter
+            self.loc = c.EarthLocation(lon, lat, height)
+            self.altazframe = c.AltAz(location=self.loc, obstime=self.obstime,
+                                temperature=self.config.get('Temperature')*u.Celsius,
+                                pressure=self.config.get('Pressure')/1000.*u.bar)
+#             self.moon = c.get_moon(self.obstime, location=self.loc)
+        except:
+            self.loc = None
+            self.altazframe = None
+            self.moon = None
+        self.back = None
 
 
     def add_logger(self, logfile=None, verbose=False):
@@ -102,12 +119,15 @@ class ScienceImage(object):
             self.log.addHandler(LogConsoleHandler)
 
 
-    def get_image_date(self):
+    def get_date(self):
         '''
-        Return string with the UT date of the image in YYYYMMDDUT format
+        Return string with the UT date of the image in YYYYMMDDUT format.
+        Also populates the `obstime` property with an `astropy.time.Time`
+        instance.
         '''
-        self.image_date = dt.strptime(self.ccd.header[self.datekw], self.datefmt)
-        self.date = self.image_date.strftime('%Y%m%dUT')
+        dto = dt.strptime(self.ccd.header[self.datekw], self.datefmt)
+        self.obstime = Time(dto)
+        self.date = dto.strftime('%Y%m%dUT')
         return self.date
 
 
@@ -196,12 +216,18 @@ class ScienceImage(object):
         for key in metadata.keys():
             print(key, metadata[key])
 
+
     def get_header_pointing(self):
         '''
-        Read the pointing coordinate from the header RA and DEC keywords.
+        Read the pointing coordinate from the header RA and DEC keywords
+        and populate the `header_pointing` property with an 
+        `astropy.coordinates.SkyCoord` instance.
         '''
         RAkwd = self.config.get('RA', 'RA')
         DECkwd = self.config.get('DEC', 'DEC')
+        equinox = self.config.get('Equinox', 2000.0)
+        if type(equinox) is str:
+            equinox = self.ccd.header[equinox]
         coord_frame = self.config.get('CoordinateFrame', 'Fk5')
         coord_format = self.config.get('CoordinateFormat', 'HMSDMS')
         RA = self.ccd.header[RAkwd]
@@ -213,20 +239,30 @@ class ScienceImage(object):
         elif coord_format == 'decimal degrees':
             self.header_pointing = c.SkyCoord(float(RA), float(DEC),
                                      frame=coord_frame,
+                                     equinox=equinox,
+                                     obstime=self.obstime,
                                      unit=(u.deg, u.deg))
         elif coord_format == 'decimal hours degrees':
             self.header_pointing = c.SkyCoord(float(RA), float(DEC),
                                      frame=coord_frame,
+                                     equinox=equinox,
+                                     obstime=self.obstime,
                                      unit=(u.hourangle, u.deg))
         else:
             self.header_pointing = None
             self.log.warning('CoordinateFormat not understood.')
+
+        if self.loc and self.header_pointing:
+            self.header_altaz = self.header_pointing.transform_to(self.altazframe)
+
         return self.header_pointing
         
         
     def solve_astrometry(self, downsample=4, SIPorder=2):
         '''
-        
+        Use a local install of astrometry.net to solve the image
+        WCS and populate the `ccd.wcs` and `ccd.header` with the
+        updated WCS info.
         '''
         solvefield_args = self.config.get('SolveFieldArgs', [])
         solvefield_args.extend(['-z', '{:d}'.format(downsample)])
@@ -265,6 +301,14 @@ class ScienceImage(object):
         
         
     def get_wcs_pointing(self):
+        '''
+        Populate the `wcs_pointing` property with and 
+        `astropy.coordinates.SkyCoord` instance based on the information
+        in the `ccd.wcs` property.
+        '''
+        equinox = self.config.get('Equinox', 2000.0)
+        if type(equinox) is str:
+            equinox = self.ccd.header[equinox]
         if not self.ccd.wcs:
             self.wcs_pointing = None
         else:
@@ -272,12 +316,20 @@ class ScienceImage(object):
             nx, ny = self.ccd.data.shape
             r, d = self.ccd.wcs.all_pix2world([nx/2.], [ny/2.], 1)
             self.wcs_pointing = c.SkyCoord(r[0], d[0], frame=coord_frame,
-                                           unit=(u.deg, u.deg))
+                                           unit=(u.deg, u.deg),
+                                           equinox=equinox,
+                                           obstime=self.obstime)
+        if self.loc and self.wcs_pointing:
+            self.wcs_altaz = self.wcs_pointing.transform_to(self.altazframe)
         return self.wcs_pointing
 
 
     def calculate_pointing_error(self):
         '''
+        Assming that the `header_pointing` extracted from the RA and DEC
+        FITS header keywords represents the intended pointing of the
+        image and that the `wcs_pointing` property represents the actual
+        pointing, calculate the pointing error magnitude.
         '''
         if not self.header_pointing:
             self.get_header_pointing()
@@ -298,6 +350,7 @@ class ScienceImage(object):
                              fw=sbc.get('fw', 3),
                              fh=sbc.get('fh', 3),
                              fthresh=sbc.get('fthresh', 0))
+        self.back = bkg
         self.ccd.data -= bkg.back()
         self.ccd.header.add_history('Background subtracted using SEP')
         self.ccd.header.add_history('  bw={:d}, bh={:d}, fw={:d}, fh={:d}'.format(
