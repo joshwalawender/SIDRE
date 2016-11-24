@@ -28,8 +28,9 @@ def make_master_bias(date, clobber=True):
     bias_root = config.get('BiasPath', os.path.abspath('.'))
     bias_files = []
     # Collect filenames of bias files within time window
-    for i in np.arange(config['CalsWindow']):
+    for i in np.arange(config['CalsWindow']+1):
         this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
+        print(this_day)
         bias_path = bias_root.replace('[YYYYMMDDUT]', this_day)
         if os.path.exists(bias_path):
             image_table = sort.get_image_table(bias_path, 'Bias')
@@ -37,6 +38,10 @@ def make_master_bias(date, clobber=True):
             bias_files.extend(new_files)
 
     nbiases = len(bias_files)
+    if nbiases == 0:
+        print('WARNING: no bias files found for {} within {} nights'.format(
+              date, config['CalsWindow']))
+        return None
     print('Combining {:d} files in to master bias'.format(nbiases))
     bias_images = []
     for i,bias_file in enumerate(bias_files):
@@ -82,13 +87,16 @@ def make_master_dark(date, clobber=True):
     '''
     config = get_config()
     master_bias = get_master(date, type='Bias')
+    if not master_bias:
+        print('WARNING: No master bias found for {}.  Skipping darks.'.format(date))
+        return None
     date_dto = dt.strptime(date, '%Y%m%dUT')
     one_day = tdelta(1)
 
     dark_root = config.get('DarkPath', os.path.abspath('.'))
 
     dark_files = []
-    for i in np.arange(config['CalsWindow']):
+    for i in np.arange(config['CalsWindow']+1):
         this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
         dark_path = dark_root.replace('[YYYYMMDDUT]', this_day)
         if os.path.exists(dark_path):
@@ -97,6 +105,10 @@ def make_master_dark(date, clobber=True):
             dark_files.extend(new_files)
 
     ndarks = len(dark_files)
+    if ndarks == 0:
+        print('WARNING: no dark files found for {} within {} nights'.format(
+              date, config['CalsWindow']))
+        return None
     print('Combining {:d} files in to master dark'.format(ndarks))
     dark_images = []
     for i,dark_file in enumerate(dark_files):
