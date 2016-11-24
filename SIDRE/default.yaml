@@ -1,6 +1,6 @@
 ---
-Gain: 1.6                  # in electroncs / ADU
-RN: 10.0                   # in electrons
+Gain: 1.6                  # in electrons / ADU (required unless in header)
+RN: 10.0                   # in electrons (required unless in header)
 LinearityLimit: 30000      # in ADU
 TemperatureDeadband: 0.5   # in same units as are in header
 RawFileExt: 0              # FITS extension the data is expected to be in
@@ -18,8 +18,17 @@ MasterShutterMapRootName: 'ShutterMap_'
 BiasPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 DarkPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/Calibration'
 FlatPath: '/Volumes/Drobo/V5/Images/[YYYYMMDDUT]/AutoFlat'
-CalsWindow: 5   # Size of window (in days) prior to an image's date for which
-                # biases and darks are considered relevant to that image
+CalsWindow: 0   # Size of window (in days) prior to an image's date for which
+                # biases and darks are considered relevant to that image.
+                # A value of 0 will use only files from the same UT date.
+                # Required
 FlatsWindow: 10 # Size of window (in days) prior to an image's date for which
                 # flats are considered relevant to that image
+                # A value of 0 will use only files from the same UT date.
+                # Required
 
+RA: 'RA'        # Header keyword containing the RA
+DEC: 'DEC'      # Header keyword containing the Declination
+CoordinateFormat: 'HMSDMS'  # Format of the header RA, Dec
+CoordinateFrame: 'fk5'      # Coordinate frame of the header RA, DEC
+SolveFieldArgs: ['-4', '2']
