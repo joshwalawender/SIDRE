@@ -15,6 +15,7 @@ from astropy import wcs
 import astropy.units as u
 import astropy.coordinates as c
 import ccdproc
+import sep
 
 from .config import get_config
 from .calibration import *
@@ -64,6 +65,7 @@ class ScienceImage(object):
         self.log.info('Processing File: {}'.format(self.filename))
 
         self.header_pointing = None
+        self.wcs_pointing = None
 
 
     def add_logger(self, logfile=None, verbose=False):
@@ -219,13 +221,7 @@ class ScienceImage(object):
         else:
             self.header_pointing = None
             self.log.warning('CoordinateFormat not understood.')
-
-
-    def render_jpeg(self, jpegfilename=None):
-        '''
-        '''
-        if not jpegfilename:
-            jpegfilename = '{}.jpg'.format(os.path.basename(self.filename))
+        return self.header_pointing
         
         
     def solve_astrometry(self, downsample=4, SIPorder=2):
@@ -268,3 +264,51 @@ class ScienceImage(object):
         os.rmdir(tdir)
         
         
+    def get_wcs_pointing(self):
+        if not self.ccd.wcs:
+            self.wcs_pointing = None
+        else:
+            coord_frame = self.config.get('CoordinateFrame', 'Fk5')
+            nx, ny = self.ccd.data.shape
+            r, d = self.ccd.wcs.all_pix2world([nx/2.], [ny/2.], 1)
+            self.wcs_pointing = c.SkyCoord(r[0], d[0], frame=coord_frame,
+                                           unit=(u.deg, u.deg))
+        return self.wcs_pointing
+
+
+    def calculate_pointing_error(self):
+        '''
+        '''
+        if not self.header_pointing:
+            self.get_header_pointing()
+        if not self.wcs_pointing:
+            self.get_wcs_pointing()
+        if self.header_pointing and self.wcs_pointing:
+            sep = self.header_pointing.separation(self.wcs_pointing)
+        return sep
+    
+    
+    def subtract_background(self):
+        '''
+        '''
+        sbc = self.config.get('Background', {})
+        bkg = sep.Background(self.ccd.data, mask=self.ccd.mask,
+                             bw=sbc.get('bw', 64),
+                             bh=sbc.get('bh', 64),
+                             fw=sbc.get('fw', 3),
+                             fh=sbc.get('fh', 3),
+                             fthresh=sbc.get('fthresh', 0))
+        self.ccd.data -= bkg.back()
+        self.ccd.header.add_history('Background subtracted using SEP')
+        self.ccd.header.add_history('  bw={:d}, bh={:d}, fw={:d}, fh={:d}'.format(
+                                    sbc.get('bw', 64), sbc.get('bh', 64),
+                                    sbc.get('fw', 3), sbc.get('fh', 3) ))
+        self.ccd.header.add_history('  fthresh={:f}'.format(sbc.get('fthresh', 0)))
+    
+    
+    def render_jpeg(self, jpegfilename=None):
+        '''
+        '''
+        if not jpegfilename:
+            jpegfilename = '{}.jpg'.format(os.path.basename(self.filename))
+    
