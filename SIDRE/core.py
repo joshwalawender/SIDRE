@@ -285,8 +285,9 @@ class ScienceImage(object):
         self.log.info('Calling: {}'.format(' '.join(cmd)))
         cmd.append(tfile)
         fail = subprocess.call(cmd)
-        solved_file = os.path.join(tdir, '{}.solved'.format(self.fileroot))
-        wcs_file = os.path.join(tdir, '{}.wcs'.format(self.fileroot))
+        rootname = os.path.splitext(self.filename)[0]
+        solved_file = os.path.join(tdir, '{}.solved'.format(rootname))
+        wcs_file = os.path.join(tdir, '{}.wcs'.format(rootname))
         new_wcs = None
         if not bool(fail):
             new_wcs = wcs.WCS(wcs_file)
@@ -296,10 +297,11 @@ class ScienceImage(object):
                 new_header = new_wcs.to_header(relax=True)
                 for key in new_header.keys():
                     self.ccd.header.set(key, new_header[key], new_header.comments[key])
+            else:
+                new_wcs = None
         # Cleanup temporary directory
         tfiles = glob(os.path.join(tdir, '*'))
         for tf in tfiles:
-            print(tf)
             os.remove(tf)
         os.rmdir(tdir)
         return new_wcs
