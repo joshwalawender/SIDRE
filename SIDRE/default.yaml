@@ -43,3 +43,4 @@ SolveFieldArgs: ['-5', '2']
 # SEP Configuration
 Background: {'bw': 128, 'bh': 128, 'fw': 3, 'fh': 3, 'fthresh': 0}
 Extract: {'thresh': 7, 'minarea': 5}
+Assoc: {'radius': 2}

@@ -451,6 +451,40 @@ class ScienceImage(object):
         return tab
     
     
+    def associate(self, input, extracted):
+        '''
+        '''
+        if '_RAJ2000' in input.keys():
+            rakey = '_RAJ2000'
+        elif 'RA' in input.keys():
+            rakey = 'RA'
+        else:
+            rakey = None
+
+        if '_DEJ2000' in input.keys():
+            deckey = '_DEJ2000'
+        elif 'DEC' in input.keys():
+            deckey = 'DEC'
+        else:
+            deckey = None
+    
+        if not rakey or not deckey:
+            self.log.warning('Could not parse input catalog table')
+            return None
+    
+        assocconf = self.config.get('Assoc')
+        assoc_r = assocconf.get('radius', 3) # pixels
+    
+        for cstar in input:
+            x, y = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
+            dist = np.sqrt( (extracted['x']-x)**2 + (extracted['y']-y)**2 )
+            ncandidates = len(dist[dist < assoc_r])
+            if ncandidates > 0:
+                id = dist.argmin()
+                r = dist[id]
+    
+    
+    
     def render_jpeg(self, jpegfilename=None, binning=1,
                     overplot_UCAC4=False):
         '''
