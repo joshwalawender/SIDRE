@@ -41,5 +41,5 @@ CoordinateFrame: 'fk5'      # Coordinate frame of the header RA, DEC
 SolveFieldArgs: ['-5', '2']
 
 # SEP Configuration
-Background: {'bw': 64, 'bh': 64, 'fw': 3, 'fh': 3, 'fthresh': 0}
-Extract: {'thresh': 5, 'minarea': 5}
+Background: {'bw': 128, 'bh': 128, 'fw': 3, 'fh': 3, 'fthresh': 0}
+Extract: {'thresh': 7, 'minarea': 5}

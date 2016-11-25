@@ -104,7 +104,8 @@ class ScienceImage(object):
         self.log = logging.getLogger(self.filename.replace('.', '_'))
         if len(self.log.handlers) == 0:
             self.log.setLevel(logging.DEBUG)
-            LogFormat = logging.Formatter('%(asctime)23s %(levelname)8s: %(message)s')
+            LogFormat = logging.Formatter('%(asctime)s %(levelname)8s: %(message)s',
+                                          datefmt='%Y%m%d %H:%M:%S')
             ## Log to a file
             if logfile:
                 self.logfile = logfile
@@ -315,8 +316,8 @@ class ScienceImage(object):
                     self.ccd.header.set(key, new_header[key], new_header.comments[key])
                 self.get_wcs_pointing()
                 self.log.info('  Pointing center: {} ({})'.format(
-                              self.wcs_pointing.to_string('hmsdms')),
-                              self.wcs_pointing.to_string('decimal'))
+                              self.wcs_pointing.to_string('hmsdms', precision=1),
+                              self.wcs_pointing.to_string('decimal', precision=4) ) )
             else:
                 new_wcs = None
         # Cleanup temporary directory
@@ -427,10 +428,14 @@ class ScienceImage(object):
     def extract(self):
         '''
         '''
+        self.log.info('Extracting sources')
         extract_config = self.config.get('Extract', {})
         thresh = extract_config.get('thresh', 5)
         minarea = extract_config.get('minarea', 5)
-        objects = sep.extract(self.ccd.data, mask=self.ccd.mask, thresh=thresh, minarea=minarea)
+        objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty, mask=self.ccd.mask,
+                              thresh=thresh, minarea=minarea)
+        self.log.info('  Found {:d} sources'.format(len(objects)))
+        return objects
     
     
     def render_jpeg(self, jpegfilename=None, binning=1,
