@@ -15,6 +15,7 @@ import astropy.coordinates as c
 from astropy.time import Time
 from astropy.io import fits
 from astropy import wcs
+from astropy.table import Table
 import ccdproc
 import sep
 
@@ -446,7 +447,8 @@ class ScienceImage(object):
                               mask=self.ccd.mask,
                               thresh=float(thresh), minarea=minarea)
         self.log.info('  Found {:d} sources'.format(len(objects)))
-        return objects
+        tab = Table(objects)
+        return tab
     
     
     def render_jpeg(self, jpegfilename=None, binning=1,
