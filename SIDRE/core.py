@@ -15,7 +15,7 @@ import astropy.coordinates as c
 from astropy.time import Time
 from astropy.io import fits
 from astropy import wcs
-from astropy.table import Table
+from astropy.table import Table, Column
 import ccdproc
 import sep
 
@@ -451,7 +451,7 @@ class ScienceImage(object):
         return tab
     
     
-    def associate(self, input, extracted):
+    def associate(self, input, extracted, magkey='imag'):
         '''
         '''
         if '_RAJ2000' in input.keys():
@@ -474,7 +474,12 @@ class ScienceImage(object):
     
         assocconf = self.config.get('Assoc')
         assoc_r = assocconf.get('radius', 3) # pixels
-    
+        
+        next = len(extracted)
+        extracted.add_column(Column(data=[None]*next, name='RA', dtype=np.float))
+        extracted.add_column(Column(data=[None]*next, name='Dec', dtype=np.float))
+        extracted.add_column(Column(data=[None]*next, name='mag', dtype=np.float))
+        
         for cstar in input:
             x, y = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
             dist = np.sqrt( (extracted['x']-x)**2 + (extracted['y']-y)**2 )
@@ -482,7 +487,10 @@ class ScienceImage(object):
             if ncandidates > 0:
                 id = dist.argmin()
                 r = dist[id]
-    
+                extracted[id]['RA'] = cstar[rakey]
+                extracted[id]['Dec'] = cstar[deckey]
+                extracted[id]['mag'] = cstar[magkey]
+        return extracted[~np.isnan(extracted['RA'])]
     
     
     def render_jpeg(self, jpegfilename=None, binning=1,
