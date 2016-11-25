@@ -398,6 +398,16 @@ class ScienceImage(object):
 
         return catalog
     
+    
+    def extract(self):
+        '''
+        '''
+        extract_config = self.config.get('Extract', {})
+        thresh = extract_config.get('thresh', 5)
+        minarea = extract_config.get('minarea', 5)
+        objects = sep.extract(self.ccd.data, mask=self.ccd.mask, thresh=thresh, minarea=minarea)
+    
+    
     def render_jpeg(self, jpegfilename=None, binning=1,
                     overplot_UCAC4=False):
         '''
