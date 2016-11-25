@@ -56,6 +56,13 @@ class ScienceImage(object):
         self.filename = os.path.basename(file)
         # Do splitext twice to hanfle .fits.fz extensions
         self.fileroot = os.path.splitext(os.path.splitext(self.filename)[0])[0]
+
+        # Initialize metadata for analysis
+        start_DR = dt.utcnow()
+        self.metadata = fits.Header()
+        self.metadata.set('DRSTART', value=start_DR.isoformat(),
+                          comment='UT time of start of analysis')
+
 #         if preprocess_header:
 #             preprocess_header(self.file)
         try:
@@ -88,8 +95,25 @@ class ScienceImage(object):
             self.altazframe = None
             self.moon = None
         self.back = None
+    
+        self.gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
+        try:
+            self.gain.value_from(self.ccd.header)
+        except KeyError:
+            self.gain.value = self.config.get('Gain')
+    
+        self.exptime = ccdproc.Keyword(self.config.get('EXPTIME', 'EXPTIME'),
+                                       unit=u.second)
+        self.exptime.value_from(self.ccd.header)
+    
+        self.readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
+        try:
+            self.readnoise.value_from(self.ccd.header)
+        except KeyError:
+            self.readnoise.value = self.config.get('RN')
 
-
+    
+    
     def add_logger(self, logfile=None, verbose=False):
         '''Create a logger object to use with this image.  The logger object
         will be available as self.log
@@ -123,8 +147,8 @@ class ScienceImage(object):
                 LogConsoleHandler.setLevel(logging.INFO)
             LogConsoleHandler.setFormatter(LogFormat)
             self.log.addHandler(LogConsoleHandler)
-
-
+    
+    
     def get_date(self):
         '''
         Return string with the UT date of the image in YYYYMMDDUT format.
@@ -135,94 +159,8 @@ class ScienceImage(object):
         self.obstime = Time(dto)
         self.date = dto.strftime('%Y%m%dUT')
         return self.date
-
-
-
-    def analyze_image(self):
-        '''
-        Run the image through the processing and analysis steps.
-        '''
-        start_DR = dt.utcnow()
-        metadata = fits.Header()
-        metadata.set('DRSTART', value=start_DR.isoformat(),
-                     comment='UT time of start of analysis')
     
     
-        # Bias correct the image
-        master_bias = get_master(self.date, type='Bias')
-        if master_bias:
-            self.log.info('Subtracting master bias')
-            self.ccd = ccdproc.subtract_bias(self.ccd, master_bias, add_keyword=None)
-            metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
-                     comment='Filename of master bias file')
-            metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
-                     comment='CHECKSUM of master bias file')
-            metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
-                     comment='DATASUM of master bias file')
-
-        # Gain correct the image
-        gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
-        try:
-            gain.value_from(self.ccd.header)
-        except KeyError:
-            gain.value = self.config.get('Gain')
-
-        self.log.info('Gain correcting image')
-        self.ccd = ccdproc.gain_correct(self.ccd, gain.value)
-
-        # Dark correct the image
-        exptime = ccdproc.Keyword(self.config.get('EXPTIME', 'EXPTIME'),
-                                  unit=u.second)
-        exptime.value_from(self.ccd.header)
-        master_dark = get_master(self.date, type='Dark')
-        if master_dark:
-            self.log.info('Dark correcting image')
-            self.ccd = ccdproc.subtract_dark(self.ccd, master_dark,
-                           data_exposure=exptime.value,
-                           dark_exposure=1.0*u.second,
-                           scale=True,
-                           add_keyword=None)
-            metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
-                     comment='Filename of master dark file')
-            metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
-                     comment='CHECKSUM of master dark file')
-            metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
-                     comment='DATASUM of master dark file')
-
-#         readnoise = ccdproc.Keyword('RDNOISE', unit=u.electron)
-#         try:
-#             readnoise.value_from(self.ccd.header)
-#         except KeyError:
-#             readnoise.value = self.config.get('RN')
-#         self.log.info('Estimating uncertainty')
-#         self.ccd = ccdproc.create_deviation(self.ccd, readnoise=readnoise.value)
-
-        # Shutter correct the image
-        shutter_map = get_master_shutter_map(self.date)
-        if shutter_map:
-            self.log.info('Applying shutter map')
-            self.ccd = ccdproc.apply_shutter_map(self.ccd, shutter_map)
-
-        # Flat correct the image
-        master_flat = get_master(self.date, type='Flat')
-        if master_flat:
-            self.log.info('Flat fielding image')
-            self.ccd = ccdproc.flat_correct(im, master_flat, add_keyword=None)
-            metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
-                     comment='Filename of master flat file')
-            metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
-                     comment='CHECKSUM of master flat file')
-            metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
-                     comment='DATASUM of master flat file')
-
-        end_DR = dt.utcnow()
-        metadata.set('DREND', value=end_DR.isoformat(),
-                     comment='UT time of start of analysis')
-
-        for key in metadata.keys():
-            print(key, metadata[key])
-
-
     def get_header_pointing(self):
         '''
         Read the pointing coordinate from the header RA and DEC keywords
@@ -268,8 +206,8 @@ class ScienceImage(object):
             self.log.warning('Failed to parse pointing from header')
 
         return self.header_pointing
-        
-        
+    
+    
     def solve_astrometry(self, downsample=4, SIPorder=3):
         '''
         Use a local install of astrometry.net to solve the image
@@ -326,8 +264,8 @@ class ScienceImage(object):
             os.remove(tf)
         os.rmdir(tdir)
         return new_wcs
-        
-        
+    
+    
     def get_wcs_pointing(self):
         '''
         Populate the `wcs_pointing` property with and 
@@ -350,8 +288,8 @@ class ScienceImage(object):
         if self.loc and self.wcs_pointing:
             self.wcs_altaz = self.wcs_pointing.transform_to(self.altazframe)
         return self.wcs_pointing
-
-
+    
+    
     def calculate_pointing_error(self):
         '''
         Assming that the `header_pointing` extracted from the RA and DEC
@@ -367,26 +305,6 @@ class ScienceImage(object):
             sep = self.header_pointing.separation(self.wcs_pointing)
         self.log.info('Pointing error = {:.1f}'.format(sep.to(u.arcmin)))
         return sep
-    
-    
-    def subtract_background(self):
-        '''
-        '''
-        self.log.info('Subtracting Background')
-        sbc = self.config.get('Background', {})
-        bkg = sep.Background(self.ccd.data, mask=self.ccd.mask,
-                             bw=sbc.get('bw', 64),
-                             bh=sbc.get('bh', 64),
-                             fw=sbc.get('fw', 3),
-                             fh=sbc.get('fh', 3),
-                             fthresh=sbc.get('fthresh', 0))
-        self.back = bkg
-        self.ccd.data -= bkg.back()
-        self.ccd.header.add_history('Background subtracted using SEP')
-        self.ccd.header.add_history('  bw={:d}, bh={:d}, fw={:d}, fh={:d}'.format(
-                                    sbc.get('bw', 64), sbc.get('bh', 64),
-                                    sbc.get('fw', 3), sbc.get('fh', 3) ))
-        self.ccd.header.add_history('  fthresh={:f}'.format(sbc.get('fthresh', 0)))
     
     
     def get_UCAC4(self):
@@ -423,6 +341,26 @@ class ScienceImage(object):
             catalog = catalog[w]
         self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
         return catalog
+    
+    
+    def subtract_background(self):
+        '''
+        '''
+        self.log.info('Subtracting Background')
+        sbc = self.config.get('Background', {})
+        bkg = sep.Background(self.ccd.data, mask=self.ccd.mask,
+                             bw=sbc.get('bw', 64),
+                             bh=sbc.get('bh', 64),
+                             fw=sbc.get('fw', 3),
+                             fh=sbc.get('fh', 3),
+                             fthresh=sbc.get('fthresh', 0))
+        self.back = bkg
+        self.ccd.data -= bkg.back()
+        self.ccd.header.add_history('Background subtracted using SEP')
+        self.ccd.header.add_history('  bw={:d}, bh={:d}, fw={:d}, fh={:d}'.format(
+                                    sbc.get('bw', 64), sbc.get('bh', 64),
+                                    sbc.get('fw', 3), sbc.get('fh', 3) ))
+        self.ccd.header.add_history('  fthresh={:f}'.format(sbc.get('fthresh', 0)))
     
     
     def extract(self):
@@ -468,5 +406,77 @@ class ScienceImage(object):
                 ax.add_artist(c)
 
         plt.savefig(jpegfilename, dpi=dpi)
-        
     
+    
+    def bias_correct(self):
+        '''
+        '''
+        master_bias = get_master(self.date, type='Bias')
+        if master_bias:
+            self.log.info('Subtracting master bias')
+            self.ccd = ccdproc.subtract_bias(self.ccd, master_bias,
+                               add_keyword=None)
+            self.metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
+                              comment='Filename of master bias file')
+            self.metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
+                              comment='CHECKSUM of master bias file')
+            self.metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
+                              comment='DATASUM of master bias file')
+    
+    
+    def gain_correct(self):
+        '''
+        '''
+        self.log.info('Gain correcting image')
+        self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
+    
+    
+    def dark_correct(self):
+        '''
+        '''
+        master_dark = get_master(self.date, type='Dark')
+        if master_dark:
+            self.log.info('Dark correcting image')
+            self.ccd = ccdproc.subtract_dark(self.ccd, master_dark,
+                           data_exposure=self.exptime.value,
+                           dark_exposure=1.0*u.second,
+                           scale=True,
+                           add_keyword=None)
+            self.metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
+                              comment='Filename of master dark file')
+            self.metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
+                              comment='CHECKSUM of master dark file')
+            self.metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
+                              comment='DATASUM of master dark file')
+    
+    
+    def shutter_correct(self):
+        '''
+        '''
+        shutter_map = get_master_shutter_map(self.date)
+        if shutter_map:
+            self.log.info('Applying shutter map')
+            self.ccd = ccdproc.apply_shutter_map(self.ccd, shutter_map)
+            self.metadata.set('SHUTFILE', value=shutter_map.header['FILENAME'],
+                          comment='Filename of master shutter correction file')
+            self.metadata.set('SHUTCSUM', value=shutter_map.header['CHECKSUM'],
+                          comment='CHECKSUM of master shutter correction file')
+            self.metadata.set('SHUTDSUM', value=shutter_map.header['DATASUM'],
+                          comment='DATASUM of master shutter correction file')
+    
+    
+    def flat_correct(self):
+        '''
+        '''
+        master_flat = get_master(self.date, type='Flat')
+        if master_flat:
+            self.log.info('Flat fielding image')
+            self.ccd = ccdproc.flat_correct(im, master_flat, add_keyword=None)
+            self.metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
+                              comment='Filename of master flat file')
+            self.metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
+                              comment='CHECKSUM of master flat file')
+            self.metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
+                              comment='DATASUM of master flat file')
+
+
