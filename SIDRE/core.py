@@ -160,6 +160,78 @@ class ScienceImage(object):
         self.date = dto.strftime('%Y%m%dUT')
         return self.date
     
+
+    def bias_correct(self):
+        '''
+        '''
+        master_bias = get_master(self.date, type='Bias')
+        if master_bias:
+            self.log.info('Subtracting master bias')
+            self.ccd = ccdproc.subtract_bias(self.ccd, master_bias,
+                               add_keyword=None)
+            self.metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
+                              comment='Filename of master bias file')
+            self.metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
+                              comment='CHECKSUM of master bias file')
+            self.metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
+                              comment='DATASUM of master bias file')
+    
+    
+    def gain_correct(self):
+        '''
+        '''
+        self.log.info('Gain correcting image')
+        self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
+    
+    
+    def dark_correct(self):
+        '''
+        '''
+        master_dark = get_master(self.date, type='Dark')
+        if master_dark:
+            self.log.info('Dark correcting image')
+            self.ccd = ccdproc.subtract_dark(self.ccd, master_dark,
+                           data_exposure=self.exptime.value,
+                           dark_exposure=1.0*u.second,
+                           scale=True,
+                           add_keyword=None)
+            self.metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
+                              comment='Filename of master dark file')
+            self.metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
+                              comment='CHECKSUM of master dark file')
+            self.metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
+                              comment='DATASUM of master dark file')
+    
+    
+    def shutter_correct(self):
+        '''
+        '''
+        shutter_map = get_master_shutter_map(self.date)
+        if shutter_map:
+            self.log.info('Applying shutter map')
+            self.ccd = ccdproc.apply_shutter_map(self.ccd, shutter_map)
+            self.metadata.set('SHUTFILE', value=shutter_map.header['FILENAME'],
+                          comment='Filename of master shutter correction file')
+            self.metadata.set('SHUTCSUM', value=shutter_map.header['CHECKSUM'],
+                          comment='CHECKSUM of master shutter correction file')
+            self.metadata.set('SHUTDSUM', value=shutter_map.header['DATASUM'],
+                          comment='DATASUM of master shutter correction file')
+    
+    
+    def flat_correct(self):
+        '''
+        '''
+        master_flat = get_master(self.date, type='Flat')
+        if master_flat:
+            self.log.info('Flat fielding image')
+            self.ccd = ccdproc.flat_correct(im, master_flat, add_keyword=None)
+            self.metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
+                              comment='Filename of master flat file')
+            self.metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
+                              comment='CHECKSUM of master flat file')
+            self.metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
+                              comment='DATASUM of master flat file')
+    
     
     def get_header_pointing(self):
         '''
@@ -370,8 +442,9 @@ class ScienceImage(object):
         extract_config = self.config.get('Extract', {})
         thresh = extract_config.get('thresh', 5)
         minarea = extract_config.get('minarea', 5)
-        objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty, mask=self.ccd.mask,
-                              thresh=thresh, minarea=minarea)
+        objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty.array,
+                              mask=self.ccd.mask,
+                              thresh=float(thresh), minarea=minarea)
         self.log.info('  Found {:d} sources'.format(len(objects)))
         return objects
     
@@ -408,75 +481,3 @@ class ScienceImage(object):
         plt.savefig(jpegfilename, dpi=dpi)
     
     
-    def bias_correct(self):
-        '''
-        '''
-        master_bias = get_master(self.date, type='Bias')
-        if master_bias:
-            self.log.info('Subtracting master bias')
-            self.ccd = ccdproc.subtract_bias(self.ccd, master_bias,
-                               add_keyword=None)
-            self.metadata.set('BIASFILE', value=master_bias.header['FILENAME'],
-                              comment='Filename of master bias file')
-            self.metadata.set('BIASCSUM', value=master_bias.header['CHECKSUM'],
-                              comment='CHECKSUM of master bias file')
-            self.metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
-                              comment='DATASUM of master bias file')
-    
-    
-    def gain_correct(self):
-        '''
-        '''
-        self.log.info('Gain correcting image')
-        self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
-    
-    
-    def dark_correct(self):
-        '''
-        '''
-        master_dark = get_master(self.date, type='Dark')
-        if master_dark:
-            self.log.info('Dark correcting image')
-            self.ccd = ccdproc.subtract_dark(self.ccd, master_dark,
-                           data_exposure=self.exptime.value,
-                           dark_exposure=1.0*u.second,
-                           scale=True,
-                           add_keyword=None)
-            self.metadata.set('DARKFILE', value=master_dark.header['FILENAME'],
-                              comment='Filename of master dark file')
-            self.metadata.set('DARKCSUM', value=master_dark.header['CHECKSUM'],
-                              comment='CHECKSUM of master dark file')
-            self.metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
-                              comment='DATASUM of master dark file')
-    
-    
-    def shutter_correct(self):
-        '''
-        '''
-        shutter_map = get_master_shutter_map(self.date)
-        if shutter_map:
-            self.log.info('Applying shutter map')
-            self.ccd = ccdproc.apply_shutter_map(self.ccd, shutter_map)
-            self.metadata.set('SHUTFILE', value=shutter_map.header['FILENAME'],
-                          comment='Filename of master shutter correction file')
-            self.metadata.set('SHUTCSUM', value=shutter_map.header['CHECKSUM'],
-                          comment='CHECKSUM of master shutter correction file')
-            self.metadata.set('SHUTDSUM', value=shutter_map.header['DATASUM'],
-                          comment='DATASUM of master shutter correction file')
-    
-    
-    def flat_correct(self):
-        '''
-        '''
-        master_flat = get_master(self.date, type='Flat')
-        if master_flat:
-            self.log.info('Flat fielding image')
-            self.ccd = ccdproc.flat_correct(im, master_flat, add_keyword=None)
-            self.metadata.set('FLATFILE', value=master_flat.header['FILENAME'],
-                              comment='Filename of master flat file')
-            self.metadata.set('FLATCSUM', value=master_flat.header['CHECKSUM'],
-                              comment='CHECKSUM of master flat file')
-            self.metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
-                              comment='DATASUM of master flat file')
-
-
