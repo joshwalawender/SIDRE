@@ -18,6 +18,10 @@ from astropy import wcs
 import ccdproc
 import sep
 
+import warnings
+from astropy.utils.exceptions import AstropyWarning
+warnings.simplefilter('ignore', category=AstropyWarning)
+
 from .config import get_config
 from .calibration import *
 from .utils import *
@@ -64,8 +68,8 @@ class ScienceImage(object):
         self.datefmt = self.config.get('DATEFMT', '%Y-%m-%dT%H:%M:%S')
         self.obstime = None
         self.date = self.get_date()
-        self.add_logger()
-        self.log.info('Processing File: {}'.format(self.filename))
+        self.add_logger(verbose=verbose)
+        self.log.info('Opened File: {}'.format(self.filename))
 
         self.header_pointing = None
         self.wcs_pointing = None
@@ -224,6 +228,7 @@ class ScienceImage(object):
         and populate the `header_pointing` property with an 
         `astropy.coordinates.SkyCoord` instance.
         '''
+        self.log.info('Reading pointing from header')
         RAkwd = self.config.get('RA', 'RA')
         DECkwd = self.config.get('DEC', 'DEC')
         equinox = self.config.get('Equinox', 2000.0)
@@ -256,15 +261,21 @@ class ScienceImage(object):
         if self.loc and self.header_pointing:
             self.header_altaz = self.header_pointing.transform_to(self.altazframe)
 
+        if self.header_pointing:
+            self.log.info('Header pointing: {}'.format(self.header_pointing.to_string('hmsdms')))
+        else:
+            self.log.warning('Failed to parse pointing from header')
+
         return self.header_pointing
         
         
-    def solve_astrometry(self, downsample=4, SIPorder=2):
+    def solve_astrometry(self, downsample=4, SIPorder=3):
         '''
         Use a local install of astrometry.net to solve the image
         WCS and populate the `ccd.wcs` and `ccd.header` with the
         updated WCS info.
         '''
+        self.log.info('Calculating astrometric solution')
         solvefield_args = self.config.get('SolveFieldArgs', [])
         solvefield_args.extend(['-z', '{:d}'.format(downsample)])
         solvefield_args.extend(['-t', '{:d}'.format(SIPorder)])
@@ -282,9 +293,14 @@ class ScienceImage(object):
         if self.header_pointing:
             cmd.extend(['-3', '{:.4f}'.format(self.header_pointing.ra.degree)])
             cmd.extend(['-4', '{:.4f}'.format(self.header_pointing.dec.degree)])
-        self.log.info('Calling: {}'.format(' '.join(cmd)))
+        self.log.info('  Calling: {}'.format(' '.join(cmd)))
         cmd.append(tfile)
-        fail = subprocess.call(cmd)
+        with open(os.path.join(tdir, 'output.txt'), 'w') as output:
+            fail = subprocess.call(cmd, stdout=output, stderr=output)
+        with open(os.path.join(tdir, 'output.txt'), 'r') as output:
+            lines = output.readlines()
+        for line in lines:
+            self.log.debug('  {}'.format(line.strip('\n')))
         rootname = os.path.splitext(self.filename)[0]
         solved_file = os.path.join(tdir, '{}.solved'.format(rootname))
         wcs_file = os.path.join(tdir, '{}.wcs'.format(rootname))
@@ -297,6 +313,10 @@ class ScienceImage(object):
                 new_header = new_wcs.to_header(relax=True)
                 for key in new_header.keys():
                     self.ccd.header.set(key, new_header[key], new_header.comments[key])
+                self.get_wcs_pointing()
+                self.log.info('  Pointing center: {} ({})'.format(
+                              self.wcs_pointing.to_string('hmsdms')),
+                              self.wcs_pointing.to_string('decimal'))
             else:
                 new_wcs = None
         # Cleanup temporary directory
@@ -344,12 +364,14 @@ class ScienceImage(object):
             self.get_wcs_pointing()
         if self.header_pointing and self.wcs_pointing:
             sep = self.header_pointing.separation(self.wcs_pointing)
+        self.log.info('Pointing error = {:.1f}'.format(sep.to(u.arcmin)))
         return sep
     
     
     def subtract_background(self):
         '''
         '''
+        self.log.info('Subtracting Background')
         sbc = self.config.get('Background', {})
         bkg = sep.Background(self.ccd.data, mask=self.ccd.mask,
                              bw=sbc.get('bw', 64),
@@ -367,6 +389,9 @@ class ScienceImage(object):
     
     
     def get_UCAC4(self):
+        '''
+        '''
+        self.log.info('Get UCAC4 stars in field of view')
         if not self.header_pointing:
             self.get_header_pointing()
         if not self.wcs_pointing:
@@ -395,7 +420,7 @@ class ScienceImage(object):
             x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'], catalog['_DEJ2000'], 1)
             w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
             catalog = catalog[w]
-
+        self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
         return catalog
     
     
@@ -412,6 +437,7 @@ class ScienceImage(object):
                     overplot_UCAC4=False):
         '''
         '''
+        self.log.info('Render JPEG of image to {}'.format(jpegfilename))
         if not jpegfilename:
             jpegfilename = '{}.jpg'.format(self.fileroot)
         import matplotlib as mpl
@@ -429,6 +455,7 @@ class ScienceImage(object):
         plt.yticks([])
 
         if overplot_UCAC4:
+            self.log.info('  Overlaying UCAC4 catalog stars')
             UCAC4 = self.get_UCAC4()
             x, y = self.ccd.wcs.all_world2pix(UCAC4['_RAJ2000'], UCAC4['_DEJ2000'], 1)
             for xy in zip(x, y):
