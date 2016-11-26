@@ -96,6 +96,9 @@ class ScienceImage(object):
             self.altazframe = None
             self.moon = None
         self.back = None
+        self.UCAC4 = None
+        self.extracted = None
+        self.assoc = None
     
         self.gain = ccdproc.Keyword('GAIN', unit=u.electron / u.adu)
         try:
@@ -413,6 +416,7 @@ class ScienceImage(object):
             w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
             catalog = catalog[w]
         self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
+        self.UCAC4 = catalog
         return catalog
     
     
@@ -447,8 +451,8 @@ class ScienceImage(object):
                               mask=self.ccd.mask,
                               thresh=float(thresh), minarea=minarea)
         self.log.info('  Found {:d} sources'.format(len(objects)))
-        tab = Table(objects)
-        return tab
+        self.extracted = Table(objects)
+        return self.extracted
     
     
     def associate(self, input, extracted, magkey='imag'):
@@ -490,11 +494,23 @@ class ScienceImage(object):
                 extracted[id]['RA'] = cstar[rakey]
                 extracted[id]['Dec'] = cstar[deckey]
                 extracted[id]['mag'] = cstar[magkey]
-        return extracted[~np.isnan(extracted['RA'])]
+        self.assoc = extracted[~np.isnan(extracted['RA'])]
+        self.log.info('  Associated {:d} extracted sources with catalog'.format(
+                      len(self.assoc)))
+        return self.assoc
+    
+    
+    def calculate_zero_point(self):
+        '''
+        '''
+        if not self.assoc:
+            return None
+        
     
     
     def render_jpeg(self, jpegfilename=None, binning=1,
-                    overplot_UCAC4=False):
+                    overplot_UCAC4=False, overplot_extracted=False,
+                    overplot_assoc=False):
         '''
         '''
         self.log.info('Render JPEG of image to {}'.format(jpegfilename))
@@ -516,12 +532,20 @@ class ScienceImage(object):
 
         if overplot_UCAC4:
             self.log.info('  Overlaying UCAC4 catalog stars')
-            UCAC4 = self.get_UCAC4()
-            x, y = self.ccd.wcs.all_world2pix(UCAC4['_RAJ2000'], UCAC4['_DEJ2000'], 1)
+            if not self.UCAC4:
+                self.get_UCAC4()
+            x, y = self.ccd.wcs.all_world2pix(self.UCAC4['_RAJ2000'], self.UCAC4['_DEJ2000'], 1)
             for xy in zip(x, y):
                 c = plt.Circle(xy, radius=5, edgecolor='r', facecolor='none')
                 ax.add_artist(c)
-
+#         if overplot_extracted:
+#             self.log.info('  Overlaying extracted stars')
+        if overplot_assoc:
+            self.log.info('  Overlaying associated stars')
+            x, y = self.ccd.wcs.all_world2pix(self.assoc['RA'], self.assoc['Dec'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=5, edgecolor='g', facecolor='none')
+                ax.add_artist(c)
         plt.savefig(jpegfilename, dpi=dpi)
     
     
