@@ -183,6 +183,7 @@ class ScienceImage(object):
     
     def gain_correct(self):
         '''
+        Wrapper around `ccdproc.gain_correct` function.
         '''
         self.log.info('Gain correcting image')
         self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
@@ -190,6 +191,7 @@ class ScienceImage(object):
     
     def dark_correct(self):
         '''
+        Wrapper around `ccdproc.subtract_dark` function.
         '''
         master_dark = get_master(self.date, type='Dark')
         if master_dark:
@@ -209,6 +211,7 @@ class ScienceImage(object):
     
     def shutter_correct(self):
         '''
+        Wrapper around `ccdproc.apply_shutter_map` function.
         '''
         shutter_map = get_master_shutter_map(self.date)
         if shutter_map:
@@ -224,6 +227,7 @@ class ScienceImage(object):
     
     def flat_correct(self):
         '''
+        Wrapper around `ccdproc.flat_correct` function.
         '''
         master_flat = get_master(self.date, type='Flat')
         if master_flat:
@@ -385,6 +389,8 @@ class ScienceImage(object):
     
     def get_UCAC4(self):
         '''
+        Use `astroquery` to get the UCAC4 catalog for this image from the
+        Vizier service.
         '''
         self.log.info('Get UCAC4 stars in field of view')
         if not self.header_pointing:
@@ -422,6 +428,8 @@ class ScienceImage(object):
     
     def subtract_background(self):
         '''
+        Use `sep.Background` to generate a background model and then
+        subtract it from the image.
         '''
         self.log.info('Subtracting Background')
         sbc = self.config.get('Background', {})
@@ -442,6 +450,7 @@ class ScienceImage(object):
     
     def extract(self):
         '''
+        Wrapper around the `sep.extract` function.
         '''
         self.log.info('Extracting sources')
         extract_config = self.config.get('Extract', {})
@@ -457,6 +466,9 @@ class ScienceImage(object):
     
     def associate(self, input, extracted, magkey='imag'):
         '''
+        Associate entries from the input stellar catalog (e.g. UCAC4) with
+        the results from the `extract` method using a simple nearest neighbor
+        algorithm.
         '''
         if '_RAJ2000' in input.keys():
             rakey = '_RAJ2000'
@@ -502,16 +514,24 @@ class ScienceImage(object):
     
     def calculate_zero_point(self):
         '''
+        Estimate the photometric zero point of the image using the associated
+        catalog.  Find the mean difference between instrumental magnitude and
+        catalog magnitude.
         '''
         if not self.assoc:
             return None
-        
+        instmag = -2.512*np.log10(self.assoc['flux'])
+        diffs = instmag - self.assoc['mag']
+        from scipy import stats
+        zp = np.mean(stats.sigmaclip(diffs, low=5.0, high=5.0)[0])
+        print(zp, np.std(diffs), np.std(diffs)/np.sqrt(len(diffs)))
     
     
     def render_jpeg(self, jpegfilename=None, binning=1,
                     overplot_UCAC4=False, overplot_extracted=False,
                     overplot_assoc=False):
         '''
+        Render a jpeg of the image with optional overlays.
         '''
         self.log.info('Render JPEG of image to {}'.format(jpegfilename))
         if not jpegfilename:
