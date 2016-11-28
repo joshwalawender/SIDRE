@@ -529,7 +529,7 @@ class ScienceImage(object):
     
     def render_jpeg(self, jpegfilename=None, binning=1,
                     overplot_UCAC4=False, overplot_extracted=False,
-                    overplot_assoc=False):
+                    overplot_assoc=False, overplot_pointing=False):
         '''
         Render a jpeg of the image with optional overlays.
         '''
@@ -546,7 +546,10 @@ class ScienceImage(object):
         sy = ny/dpi/binning
         fig = plt.figure(figsize=(sx, sy), dpi=dpi)
         ax = fig.gca()
-        plt.imshow(self.ccd.data, cmap='gray', vmin=vmin, vmax=vmax)
+        mdata = np.ma.MaskedArray(self.ccd.data, mask=self.ccd.mask)
+        palette = plt.cm.gray
+        palette.set_bad('r', 1.0)
+        plt.imshow(mdata, cmap=palette, vmin=vmin, vmax=vmax)
         plt.xticks([])
         plt.yticks([])
 
@@ -556,16 +559,40 @@ class ScienceImage(object):
                 self.get_UCAC4()
             x, y = self.ccd.wcs.all_world2pix(self.UCAC4['_RAJ2000'], self.UCAC4['_DEJ2000'], 1)
             for xy in zip(x, y):
-                c = plt.Circle(xy, radius=5, edgecolor='r', facecolor='none')
+                c = plt.Circle(xy, radius=5, edgecolor='o', facecolor='none')
                 ax.add_artist(c)
 #         if overplot_extracted:
 #             self.log.info('  Overlaying extracted stars')
+        if overplot_extracted:
+            self.log.info('  Overlaying extracted stars')
+            x, y = self.ccd.wcs.all_world2pix(self.extracted['RA'], self.extracted['Dec'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=5, edgecolor='g', facecolor='none')
+                ax.add_artist(c)
         if overplot_assoc:
             self.log.info('  Overlaying associated stars')
             x, y = self.ccd.wcs.all_world2pix(self.assoc['RA'], self.assoc['Dec'], 1)
             for xy in zip(x, y):
-                c = plt.Circle(xy, radius=5, edgecolor='g', facecolor='none')
+                c = plt.Circle(xy, radius=5, edgecolor='b', facecolor='none')
                 ax.add_artist(c)
+        if overplot_pointing:
+            if not self.ccd.wcs.is_celestial:
+                return None
+            if not self.header_pointing:
+                self.get_header_pointing()
+            if self.header_pointing:
+                x, y = self.ccd.wcs.all_world2pix(self.header_pointing.ra.degree,
+                                                  self.header_pointing.dec.degree, 1)
+                plt.plot([0,nx], [ny/2,ny/2], 'y-', alpha=0.7)
+                plt.plot([nx/2, nx/2], [0,ny], 'y-', alpha=0.7)
+                # Draw crosshair on target
+                ms = 40
+                c = plt.Circle((x, y), radius=ms, edgecolor='g', alpha=0.7, facecolor='none')
+                ax.add_artist(c)
+                plt.plot([x, x], [y+0.6*ms, y+1.4*ms], 'g', alpha=0.7)
+                plt.plot([x, x], [y-0.6*ms, y-1.4*ms], 'g', alpha=0.7)
+                plt.plot([x-0.6*ms, x-1.4*ms], [y, y], 'g', alpha=0.7)
+                plt.plot([x+0.6*ms, x+1.4*ms], [y, y], 'g', alpha=0.7)
         plt.savefig(jpegfilename, dpi=dpi)
     
     
