@@ -527,7 +527,7 @@ class ScienceImage(object):
         print(zp, np.std(diffs), np.std(diffs)/np.sqrt(len(diffs)))
     
     
-    def render_jpeg(self, jpegfilename=None, binning=1,
+    def render_jpeg(self, jpegfilename=None, binning=1, radius=6,
                     overplot_UCAC4=False, overplot_extracted=False,
                     overplot_assoc=False, overplot_pointing=False):
         '''
@@ -559,7 +559,7 @@ class ScienceImage(object):
                 self.get_UCAC4()
             x, y = self.ccd.wcs.all_world2pix(self.UCAC4['_RAJ2000'], self.UCAC4['_DEJ2000'], 1)
             for xy in zip(x, y):
-                c = plt.Circle(xy, radius=5, edgecolor='o', facecolor='none')
+                c = plt.Circle(xy, radius=radius, edgecolor='o', facecolor='none')
                 ax.add_artist(c)
 #         if overplot_extracted:
 #             self.log.info('  Overlaying extracted stars')
@@ -567,13 +567,13 @@ class ScienceImage(object):
             self.log.info('  Overlaying extracted stars')
             x, y = self.ccd.wcs.all_world2pix(self.extracted['RA'], self.extracted['Dec'], 1)
             for xy in zip(x, y):
-                c = plt.Circle(xy, radius=5, edgecolor='g', facecolor='none')
+                c = plt.Circle(xy, radius=radius, edgecolor='g', facecolor='none')
                 ax.add_artist(c)
         if overplot_assoc:
             self.log.info('  Overlaying associated stars')
             x, y = self.ccd.wcs.all_world2pix(self.assoc['RA'], self.assoc['Dec'], 1)
             for xy in zip(x, y):
-                c = plt.Circle(xy, radius=5, edgecolor='b', facecolor='none')
+                c = plt.Circle(xy, radius=radius, edgecolor='b', facecolor='none')
                 ax.add_artist(c)
         if overplot_pointing:
             if not self.ccd.wcs.is_celestial:
@@ -586,7 +586,7 @@ class ScienceImage(object):
                 plt.plot([0,nx], [ny/2,ny/2], 'y-', alpha=0.7)
                 plt.plot([nx/2, nx/2], [0,ny], 'y-', alpha=0.7)
                 # Draw crosshair on target
-                ms = 40
+                ms = radius*6
                 c = plt.Circle((x, y), radius=ms, edgecolor='g', alpha=0.7, facecolor='none')
                 ax.add_artist(c)
                 plt.plot([x, x], [y+0.6*ms, y+1.4*ms], 'g', alpha=0.7)
