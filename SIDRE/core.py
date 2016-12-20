@@ -50,7 +50,7 @@ def preprocess_header(file):
 class ScienceImage(object):
     '''
     '''
-    def __init__(self, file, preprocess_header=preprocess_header,
+    def __init__(self, file, preprocess_header=None,
                  logfile=None, verbose=False, unit='adu'):
         assert os.path.exists(file)
         self.file = file
@@ -64,8 +64,8 @@ class ScienceImage(object):
         self.metadata.set('DRSTART', value=start_DR.isoformat(),
                           comment='UT time of start of analysis')
 
-#         if preprocess_header:
-#             preprocess_header(self.file)
+        if preprocess_header:
+            preprocess_header(self.file)
         try:
             self.ccd = ccdproc.fits_ccddata_reader(file, verify=True)
         except ValueError:
@@ -88,8 +88,8 @@ class ScienceImage(object):
             height = self.config.get('Elevation') * u.meter
             self.loc = c.EarthLocation(lon, lat, height)
             self.altazframe = c.AltAz(location=self.loc, obstime=self.obstime,
-                                temperature=self.config.get('Temperature')*u.Celsius,
-                                pressure=self.config.get('Pressure')/1000.*u.bar)
+                              temperature=self.config.get('Temperature')*u.Celsius,
+                              pressure=self.config.get('Pressure')/1000.*u.bar)
 #             self.moon = c.get_moon(self.obstime, location=self.loc)
         except:
             self.loc = None
@@ -116,6 +116,9 @@ class ScienceImage(object):
         except KeyError:
             self.readnoise.value = self.config.get('RN')
 
+    
+    def __del__(self):
+        self.log.info('Done.')
     
     
     def add_logger(self, logfile=None, verbose=False):
@@ -281,14 +284,15 @@ class ScienceImage(object):
             self.header_altaz = self.header_pointing.transform_to(self.altazframe)
 
         if self.header_pointing:
-            self.log.info('Header pointing: {}'.format(self.header_pointing.to_string('hmsdms')))
+            self.log.info('Header pointing: {}'.format(
+                          self.header_pointing.to_string('hmsdms')))
         else:
             self.log.warning('Failed to parse pointing from header')
 
         return self.header_pointing
     
     
-    def solve_astrometry(self, downsample=4, SIPorder=3):
+    def solve_astrometry(self, downsample=4, SIPorder=4):
         '''
         Use a local install of astrometry.net to solve the image
         WCS and populate the `ccd.wcs` and `ccd.header` with the
@@ -331,11 +335,12 @@ class ScienceImage(object):
                 self.ccd.header.add_history('New WCS solved by astrometry.net')
                 new_header = new_wcs.to_header(relax=True)
                 for key in new_header.keys():
-                    self.ccd.header.set(key, new_header[key], new_header.comments[key])
+                    self.ccd.header.set(key, new_header[key],
+                                        new_header.comments[key])
                 self.get_wcs_pointing()
                 self.log.info('  Pointing center: {} ({})'.format(
                               self.wcs_pointing.to_string('hmsdms', precision=1),
-                              self.wcs_pointing.to_string('decimal', precision=4) ) )
+                              self.wcs_pointing.to_string('decimal', precision=4)))
             else:
                 new_wcs = None
         # Cleanup temporary directory
@@ -413,12 +418,13 @@ class ScienceImage(object):
         fp = self.ccd.wcs.calc_footprint(axes=self.ccd.data.shape)
         dra = fp[:,0].max() - fp[:,0].min()
         ddec = fp[:,1].max() - fp[:,1].min()
-        radius = np.sqrt( (dra*np.cos(fp[:,1].mean()*np.pi/180.))**2 + ddec**2 )/2.
+        radius = np.sqrt((dra*np.cos(fp[:,1].mean()*np.pi/180.))**2 + ddec**2)/2.
         catalog = v.query_region(self.header_pointing, catalog='I/322A',
                                  radius=Angle(radius, "deg") )[0]
 
         if self.ccd.wcs:
-            x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'], catalog['_DEJ2000'], 1)
+            x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'],
+                                              catalog['_DEJ2000'], 1)
             w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
             catalog = catalog[w]
         self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
@@ -442,10 +448,10 @@ class ScienceImage(object):
         self.back = bkg
         self.ccd.data -= bkg.back()
         self.ccd.header.add_history('Background subtracted using SEP')
-        self.ccd.header.add_history('  bw={:d}, bh={:d}, fw={:d}, fh={:d}'.format(
+        self.ccd.header.add_history(' bw={:d},bh={:d},fw={:d},fh={:d}'.format(
                                     sbc.get('bw', 64), sbc.get('bh', 64),
                                     sbc.get('fw', 3), sbc.get('fh', 3) ))
-        self.ccd.header.add_history('  fthresh={:f}'.format(sbc.get('fthresh', 0)))
+        self.ccd.header.add_history(' fthresh={:f}'.format(sbc.get('fthresh',0)))
     
     
     def extract(self):
@@ -496,20 +502,38 @@ class ScienceImage(object):
         extracted.add_column(Column(data=[None]*next, name='Dec', dtype=np.float))
         extracted.add_column(Column(data=[None]*next, name='mag', dtype=np.float))
         
-        for cstar in input:
-            x, y = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
-            dist = np.sqrt( (extracted['x']-x)**2 + (extracted['y']-y)**2 )
+        ny, nx = im.ccd.shape
+        x = Column(data=np.zeros(len(input), name='x'))
+        y = Column(data=np.zeros(len(input), name='y'))
+        r = Column(data=np.zeros(len(input), name='r'))
+        
+        for i,cstar in enumerate(input):
+            x[i], y[i] = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
+            r[i] = np.sqrt((x[i]-nx/2.)**2 + (y[i]-ny/2.)**2)
+            dist = np.sqrt( (extracted['x']-x[i])**2 + (extracted['y']-y[i])**2 )
             ncandidates = len(dist[dist < assoc_r])
             if ncandidates > 0:
                 id = dist.argmin()
-                r = dist[id]
                 extracted[id]['RA'] = cstar[rakey]
                 extracted[id]['Dec'] = cstar[deckey]
                 extracted[id]['mag'] = cstar[magkey]
         self.assoc = extracted[~np.isnan(extracted['RA'])]
         self.log.info('  Associated {:d} extracted sources with catalog'.format(
                       len(self.assoc)))
-        return self.assoc
+        input.add_columns([x, y, r])
+        return input
+    
+    
+    def test_astrometry(self):
+        '''
+        '''
+        assert self.assoc
+        ny, nx = self.ccd.shape
+        radius = np.sqrt((nx/2.)**2 + (ny/2.)**2)
+        radii = np.linspace(0, radius, 10)
+#         for i,r in enumerate(radii):
+#             n_cat = 
+#             assoc_frac = 
     
     
     def calculate_zero_point(self):
@@ -557,24 +581,28 @@ class ScienceImage(object):
             self.log.info('  Overlaying UCAC4 catalog stars')
             if not self.UCAC4:
                 self.get_UCAC4()
-            x, y = self.ccd.wcs.all_world2pix(self.UCAC4['_RAJ2000'], self.UCAC4['_DEJ2000'], 1)
-            for xy in zip(x, y):
-                c = plt.Circle(xy, radius=radius, edgecolor='o', facecolor='none')
-                ax.add_artist(c)
-#         if overplot_extracted:
-#             self.log.info('  Overlaying extracted stars')
-        if overplot_extracted:
-            self.log.info('  Overlaying extracted stars')
-            x, y = self.ccd.wcs.all_world2pix(self.extracted['RA'], self.extracted['Dec'], 1)
-            for xy in zip(x, y):
-                c = plt.Circle(xy, radius=radius, edgecolor='g', facecolor='none')
-                ax.add_artist(c)
-        if overplot_assoc:
-            self.log.info('  Overlaying associated stars')
-            x, y = self.ccd.wcs.all_world2pix(self.assoc['RA'], self.assoc['Dec'], 1)
+            x, y = self.ccd.wcs.all_world2pix(self.UCAC4['_RAJ2000'],
+                                              self.UCAC4['_DEJ2000'], 1)
             for xy in zip(x, y):
                 c = plt.Circle(xy, radius=radius, edgecolor='b', facecolor='none')
                 ax.add_artist(c)
+
+        if overplot_extracted:
+            self.log.info('  Overlaying extracted stars')
+            x, y = self.ccd.wcs.all_world2pix(self.extracted['RA'],
+                                              self.extracted['Dec'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=radius, edgecolor='r', facecolor='none')
+                ax.add_artist(c)
+
+        if overplot_assoc:
+            self.log.info('  Overlaying associated stars')
+            x, y = self.ccd.wcs.all_world2pix(self.assoc['RA'],
+                                              self.assoc['Dec'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=radius, edgecolor='g', facecolor='none')
+                ax.add_artist(c)
+
         if overplot_pointing:
             if not self.ccd.wcs.is_celestial:
                 return None
@@ -587,7 +615,8 @@ class ScienceImage(object):
                 plt.plot([nx/2, nx/2], [0,ny], 'y-', alpha=0.7)
                 # Draw crosshair on target
                 ms = radius*6
-                c = plt.Circle((x, y), radius=ms, edgecolor='g', alpha=0.7, facecolor='none')
+                c = plt.Circle((x, y), radius=ms, edgecolor='g', alpha=0.7,
+                               facecolor='none')
                 ax.add_artist(c)
                 plt.plot([x, x], [y+0.6*ms, y+1.4*ms], 'g', alpha=0.7)
                 plt.plot([x, x], [y-0.6*ms, y-1.4*ms], 'g', alpha=0.7)
