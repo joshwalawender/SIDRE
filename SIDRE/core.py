@@ -32,17 +32,20 @@ def preprocess_header(file):
     print('Fixing header')
     with fits.open(file, 'update', verify=True) as hdul:
         updated = False
+        # Convert RADECSYS to RADESYSa
         if not 'RADESYSa' in hdul[0].header.keys()\
            and 'RADECSYS' in hdul[0].header.keys():
             hdul[0].header.set('RADESYSa', hdul[0].header['RADECSYS'])
             updated = True
+        # Add BUNIT
         if not 'BUNIT' in hdul[0].header.keys():
             hdul[0].header.set('BUNIT', 'adu')
             updated = True
-        else:
-            if hdul[0].header['BUNIT'] == 'ADU':
-                hdul[0].header.set('BUNIT', 'adu')
-                updated = True
+        # If BUNIT is ADU convert to adu
+        elif hdul[0].header['BUNIT'] == 'ADU':
+            hdul[0].header.set('BUNIT', 'adu')
+            updated = True
+
         if updated:
             hdul.flush()
 
@@ -50,8 +53,9 @@ def preprocess_header(file):
 class ScienceImage(object):
     '''
     '''
-    def __init__(self, file, preprocess_header=None,
+    def __init__(self, file, preprocess_header=preprocess_header,
                  logfile=None, verbose=False, unit='adu'):
+        self.log = None
         assert os.path.exists(file)
         self.file = file
         self.filename = os.path.basename(file)
@@ -64,8 +68,11 @@ class ScienceImage(object):
         self.metadata.set('DRSTART', value=start_DR.isoformat(),
                           comment='UT time of start of analysis')
 
+        # Preprocess header if needed
         if preprocess_header:
             preprocess_header(self.file)
+
+        # Read FITS file
         try:
             self.ccd = ccdproc.fits_ccddata_reader(file, verify=True)
         except ValueError:
@@ -116,11 +123,12 @@ class ScienceImage(object):
         except KeyError:
             self.readnoise.value = self.config.get('RN')
 
-    
+
     def __del__(self):
-        self.log.info('Done.')
-    
-    
+        if self.log:
+            self.log.info('Done.')
+
+
     def add_logger(self, logfile=None, verbose=False):
         '''Create a logger object to use with this image.  The logger object
         will be available as self.log
@@ -154,8 +162,8 @@ class ScienceImage(object):
                 LogConsoleHandler.setLevel(logging.INFO)
             LogConsoleHandler.setFormatter(LogFormat)
             self.log.addHandler(LogConsoleHandler)
-    
-    
+
+
     def get_date(self):
         '''
         Return string with the UT date of the image in YYYYMMDDUT format.
@@ -166,7 +174,7 @@ class ScienceImage(object):
         self.obstime = Time(dto)
         self.date = dto.strftime('%Y%m%dUT')
         return self.date
-    
+
 
     def bias_correct(self):
         '''
@@ -182,16 +190,16 @@ class ScienceImage(object):
                               comment='CHECKSUM of master bias file')
             self.metadata.set('BIASDSUM', value=master_bias.header['DATASUM'],
                               comment='DATASUM of master bias file')
-    
-    
+
+
     def gain_correct(self):
         '''
         Wrapper around `ccdproc.gain_correct` function.
         '''
         self.log.info('Gain correcting image')
         self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
-    
-    
+
+
     def dark_correct(self):
         '''
         Wrapper around `ccdproc.subtract_dark` function.
@@ -210,8 +218,8 @@ class ScienceImage(object):
                               comment='CHECKSUM of master dark file')
             self.metadata.set('DARKDSUM', value=master_dark.header['DATASUM'],
                               comment='DATASUM of master dark file')
-    
-    
+
+
     def shutter_correct(self):
         '''
         Wrapper around `ccdproc.apply_shutter_map` function.
@@ -226,8 +234,8 @@ class ScienceImage(object):
                           comment='CHECKSUM of master shutter correction file')
             self.metadata.set('SHUTDSUM', value=shutter_map.header['DATASUM'],
                           comment='DATASUM of master shutter correction file')
-    
-    
+
+
     def flat_correct(self):
         '''
         Wrapper around `ccdproc.flat_correct` function.
@@ -242,8 +250,8 @@ class ScienceImage(object):
                               comment='CHECKSUM of master flat file')
             self.metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
                               comment='DATASUM of master flat file')
-    
-    
+
+
     def get_header_pointing(self):
         '''
         Read the pointing coordinate from the header RA and DEC keywords
@@ -278,27 +286,26 @@ class ScienceImage(object):
                                      unit=(u.hourangle, u.deg))
         else:
             self.header_pointing = None
-            self.log.warning('CoordinateFormat not understood.')
+            self.log.warning('  CoordinateFormat not understood.')
 
         if self.loc and self.header_pointing:
             self.header_altaz = self.header_pointing.transform_to(self.altazframe)
 
         if self.header_pointing:
-            self.log.info('Header pointing: {}'.format(
+            self.log.info('  Header pointing: {}'.format(
                           self.header_pointing.to_string('hmsdms')))
         else:
-            self.log.warning('Failed to parse pointing from header')
+            self.log.warning('  Failed to parse pointing from header')
 
         return self.header_pointing
-    
-    
-    def solve_astrometry(self, downsample=4, SIPorder=4):
+
+
+    def solve_astrometry(self, downsample=2, SIPorder=4):
         '''
         Use a local install of astrometry.net to solve the image
         WCS and populate the `ccd.wcs` and `ccd.header` with the
         updated WCS info.
         '''
-        self.log.info('Calculating astrometric solution')
         solvefield_args = self.config.get('SolveFieldArgs', [])
         solvefield_args.extend(['-z', '{:d}'.format(downsample)])
         solvefield_args.extend(['-t', '{:d}'.format(SIPorder)])
@@ -313,6 +320,7 @@ class ScienceImage(object):
         cmd.extend(solvefield_args)
         if not self.header_pointing:
             self.get_header_pointing()
+        self.log.info('Calculating astrometric solution')
         if self.header_pointing:
             cmd.extend(['-3', '{:.4f}'.format(self.header_pointing.ra.degree)])
             cmd.extend(['-4', '{:.4f}'.format(self.header_pointing.dec.degree)])
@@ -343,14 +351,16 @@ class ScienceImage(object):
                               self.wcs_pointing.to_string('decimal', precision=4)))
             else:
                 new_wcs = None
+        else:
+            self.log.warning('solve-field failed')
         # Cleanup temporary directory
         tfiles = glob(os.path.join(tdir, '*'))
         for tf in tfiles:
             os.remove(tf)
         os.rmdir(tdir)
         return new_wcs
-    
-    
+
+
     def get_wcs_pointing(self):
         '''
         Populate the `wcs_pointing` property with and 
@@ -373,8 +383,8 @@ class ScienceImage(object):
         if self.loc and self.wcs_pointing:
             self.wcs_altaz = self.wcs_pointing.transform_to(self.altazframe)
         return self.wcs_pointing
-    
-    
+
+
     def calculate_pointing_error(self):
         '''
         Assming that the `header_pointing` extracted from the RA and DEC
@@ -390,8 +400,8 @@ class ScienceImage(object):
             sep = self.header_pointing.separation(self.wcs_pointing)
         self.log.info('Pointing error = {:.1f}'.format(sep.to(u.arcmin)))
         return sep
-    
-    
+
+
     def get_UCAC4(self):
         '''
         Use `astroquery` to get the UCAC4 catalog for this image from the
@@ -404,7 +414,7 @@ class ScienceImage(object):
             self.get_wcs_pointing()
         if self.wcs_pointing:
             pointing = self.wcs_pointing
-        elif im.header_pointing:
+        elif self.header_pointing:
             pointing = self.wcs_pointing
         else:
             return None
@@ -430,8 +440,8 @@ class ScienceImage(object):
         self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
         self.UCAC4 = catalog
         return catalog
-    
-    
+
+
     def subtract_background(self):
         '''
         Use `sep.Background` to generate a background model and then
@@ -452,8 +462,8 @@ class ScienceImage(object):
                                     sbc.get('bw', 64), sbc.get('bh', 64),
                                     sbc.get('fw', 3), sbc.get('fh', 3) ))
         self.ccd.header.add_history(' fthresh={:f}'.format(sbc.get('fthresh',0)))
-    
-    
+
+
     def extract(self):
         '''
         Wrapper around the `sep.extract` function.
@@ -467,10 +477,20 @@ class ScienceImage(object):
                               thresh=float(thresh), minarea=minarea)
         self.log.info('  Found {:d} sources'.format(len(objects)))
         self.extracted = Table(objects)
+
+        next = len(self.extracted)
+        self.extracted.add_column(Column(data=[None]*next, name='RA', dtype=np.float))
+        self.extracted.add_column(Column(data=[None]*next, name='Dec', dtype=np.float))
+        self.extracted.add_column(Column(data=[None]*next, name='mag', dtype=np.float))
+
+        ny, nx = self.ccd.shape
+        r = np.sqrt((self.extracted['x']-nx/2.)**2 + (self.extracted['y']-ny/2.)**2)
+        self.extracted.add_column(Column(data=r.data, name='r', dtype=np.float))
+
         return self.extracted
-    
-    
-    def associate(self, input, extracted, magkey='imag'):
+
+
+    def associate(self, input, magkey='imag'):
         '''
         Associate entries from the input stellar catalog (e.g. UCAC4) with
         the results from the `extract` method using a simple nearest neighbor
@@ -497,45 +517,57 @@ class ScienceImage(object):
         assocconf = self.config.get('Assoc')
         assoc_r = assocconf.get('radius', 3) # pixels
         
-        next = len(extracted)
-        extracted.add_column(Column(data=[None]*next, name='RA', dtype=np.float))
-        extracted.add_column(Column(data=[None]*next, name='Dec', dtype=np.float))
-        extracted.add_column(Column(data=[None]*next, name='mag', dtype=np.float))
-        
-        ny, nx = im.ccd.shape
-        x = Column(data=np.zeros(len(input), name='x'))
-        y = Column(data=np.zeros(len(input), name='y'))
-        r = Column(data=np.zeros(len(input), name='r'))
-        
+        ny, nx = self.ccd.shape
         for i,cstar in enumerate(input):
-            x[i], y[i] = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
-            r[i] = np.sqrt((x[i]-nx/2.)**2 + (y[i]-ny/2.)**2)
-            dist = np.sqrt( (extracted['x']-x[i])**2 + (extracted['y']-y[i])**2 )
+            x, y = self.ccd.wcs.all_world2pix(cstar[rakey], cstar[deckey], 1)
+            dist = np.sqrt( (self.extracted['x']-x)**2 + (self.extracted['y']-y)**2 )
             ncandidates = len(dist[dist < assoc_r])
             if ncandidates > 0:
                 id = dist.argmin()
-                extracted[id]['RA'] = cstar[rakey]
-                extracted[id]['Dec'] = cstar[deckey]
-                extracted[id]['mag'] = cstar[magkey]
-        self.assoc = extracted[~np.isnan(extracted['RA'])]
+                self.extracted[id]['RA'] = cstar[rakey]
+                self.extracted[id]['Dec'] = cstar[deckey]
+                self.extracted[id]['mag'] = cstar[magkey]
+        self.assoc = self.extracted[~np.isnan(self.extracted['RA'])]
         self.log.info('  Associated {:d} extracted sources with catalog'.format(
                       len(self.assoc)))
-        input.add_columns([x, y, r])
         return input
-    
-    
-    def test_astrometry(self):
+
+
+    def test_astrometry(self, nradii=10, min_best_match=0.10, min_regional_match=0.50):
         '''
         '''
         assert self.assoc
+        pass_astrometry = True
         ny, nx = self.ccd.shape
         radius = np.sqrt((nx/2.)**2 + (ny/2.)**2)
-        radii = np.linspace(0, radius, 10)
-#         for i,r in enumerate(radii):
-#             n_cat = 
-#             assoc_frac = 
-    
-    
+        radii = np.linspace(0, radius, nradii+1)
+        frac = np.zeros(nradii)
+        for i in range(nradii):
+            n_assoc = len(self.assoc[(self.assoc['r'] > radii[i])\
+                                   & (self.assoc['r'] <= radii[i+1])])
+            n_detected = len(self.extracted[(self.extracted['r'] > radii[i])\
+                                          & (self.extracted['r'] <= radii[i+1])])
+            frac[i] = float(n_assoc)/float(n_detected)
+        
+        AQM = frac/max(frac)
+        self.log.info('Astrometery verificaton metrics:')
+        best_match = max(frac)
+        self.log.info('  Best match = {:.1f} %'.format(best_match*100.))
+        if best_match < min_best_match:
+            pass_astrometry = False
+            self.log.warning('Astrometry test failed.')
+            self.log.warning('Best region absolute success rate < {:.1f} %'.format(min_best_match*100.))
+        
+        for i,val in enumerate(AQM):
+            self.log.info(' AQM ({:d}) = {:.2f}'.format(i, val))
+        if min(AQM) < min_regional_match:
+            pass_astrometry = False
+            self.log.warning('Astrometry test failed.')
+            self.log.warning('Worst region relative success rate < {:.1f} %'.format(min_regional_match*100.))
+
+        return pass_astrometry
+
+
     def calculate_zero_point(self):
         '''
         Estimate the photometric zero point of the image using the associated
@@ -549,8 +581,8 @@ class ScienceImage(object):
         from scipy import stats
         zp = np.mean(stats.sigmaclip(diffs, low=5.0, high=5.0)[0])
         print(zp, np.std(diffs), np.std(diffs)/np.sqrt(len(diffs)))
-    
-    
+
+
     def render_jpeg(self, jpegfilename=None, binning=1, radius=6,
                     overplot_UCAC4=False, overplot_extracted=False,
                     overplot_assoc=False, overplot_pointing=False):
