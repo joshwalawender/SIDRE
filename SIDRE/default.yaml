@@ -15,15 +15,15 @@ EXPTIME: 'EXPTIME'    # Header keyword with the exposure time value in seconds
 DATE-OBS: 'DATE-OBS'  # Header keyword with the date the image was acquired
 DATEFMT: '%Y-%m-%dT%H:%M:%S' # The python datetime format of the DATE-OBS value
 
-MasterPath: '/Volumes/VYSOSCopy/V5/Master'
+MasterPath: '/Volumes/DataCopy/V5/Master'
 MasterBiasRootName: 'MasterBias_'
 MasterDarkRootName: 'MasterDark_'
 MasterFlatRootName: 'MasterFlat_'
 MasterShutterMapRootName: 'ShutterMap_'
 
-BiasPath: '/Volumes/VYSOSCopy/V5/Images/[YYYYMMDDUT]/Calibration'
-DarkPath: '/Volumes/VYSOSCopy/V5/Images/[YYYYMMDDUT]/Calibration'
-FlatPath: '/Volumes/VYSOSCopy/V5/Images/[YYYYMMDDUT]/AutoFlat'
+BiasPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
+DarkPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
+FlatPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/AutoFlat'
 CalsWindow: 0   # Size of window (in days) prior to an image's date for which
                 # biases and darks are considered relevant to that image.
                 # A value of 0 will use only files from the same UT date.
