@@ -1,0 +1,46 @@
+---
+Gain: 1.6                  # in electrons / ADU (required unless in header)
+RN: 10.0                   # in electrons (required unless in header)
+LinearityLimit: 30000      # in ADU
+TemperatureDeadband: 0.5   # in same units as are in header
+RawFileExt: 0              # FITS extension the data is expected to be in
+
+Latitude: 19.53602    # Latitude (in degrees) of the observatory.
+Longitude: -155.57608 # Longitude (in degrees) of the observatory.
+Elevation: 3400       # Elevation (in meters) of the observatory.
+Pressure: 620         # Pressure in mbar
+Temperature: 0        # Temperature in degrees C
+
+EXPTIME: 'EXPTIME'    # Header keyword with the exposure time value in seconds
+DATE-OBS: 'DATE-OBS'  # Header keyword with the date the image was acquired
+DATEFMT: '%Y-%m-%dT%H:%M:%S' # The python datetime format of the DATE-OBS value
+
+MasterPath: '/Volumes/DataCopy/V5/Master'
+MasterBiasRootName: 'MasterBias_'
+MasterDarkRootName: 'MasterDark_'
+MasterFlatRootName: 'MasterFlat_'
+MasterShutterMapRootName: 'ShutterMap_'
+
+BiasPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
+DarkPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
+FlatPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/AutoFlat'
+CalsWindow: 0   # Size of window (in days) prior to an image's date for which
+                # biases and darks are considered relevant to that image.
+                # A value of 0 will use only files from the same UT date.
+                # Required
+FlatsWindow: 10 # Size of window (in days) prior to an image's date for which
+                # flats are considered relevant to that image
+                # A value of 0 will use only files from the same UT date.
+                # Required
+
+RA: 'RA'        # Header keyword containing the RA
+DEC: 'DEC'      # Header keyword containing the Declination
+Equinox: 2000.0
+CoordinateFormat: 'HMSDMS'  # Format of the header RA, Dec
+CoordinateFrame: 'fk5'      # Coordinate frame of the header RA, DEC
+SolveFieldArgs: ['-5', '2']
+
+# SEP Configuration
+Background: {'bw': 128, 'bh': 128, 'fw': 3, 'fh': 3, 'fthresh': 0}
+Extract: {'thresh': 7, 'minarea': 5}
+Assoc: {'radius': 2}
