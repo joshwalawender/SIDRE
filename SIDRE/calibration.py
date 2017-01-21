@@ -29,9 +29,8 @@ def make_master_bias(date, clobber=True):
     bias_files = []
     # Collect filenames of bias files within time window
     for i in np.arange(config['CalsWindow']+1):
-        this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
-        print(this_day)
-        bias_path = bias_root.replace('[YYYYMMDDUT]', this_day)
+        this_date = date_dto - i*one_day
+        bias_path = dt.strftime(this_date, bias_root)
         if os.path.exists(bias_path):
             image_table = sort.get_image_table(bias_path, 'Bias')
             new_files = [os.path.join(bias_path, fn) for fn in image_table['file']]
@@ -56,7 +55,13 @@ def make_master_bias(date, clobber=True):
             readnoise.value_from(bias_image.header)
         except KeyError:
             readnoise.value = config.get('RN')
-        bias_image.uncertainty = StdDevUncertainty(np.ones(bias_image.data.shape) * readnoise.value)
+        gain = ccdproc.Keyword('GAIN', unit=u.electron/u.adu)
+        try:
+            gain.value_from(bias_image.header)
+        except KeyError:
+            gain.value = config.get('Gain')
+        bias_image.uncertainty = StdDevUncertainty(np.ones(bias_image.data.shape)\
+                                 * readnoise.value/gain.value)
         bias_images.append(bias_image)
 
     master_bias = ccdproc.combine(bias_images, combine='median')
@@ -97,8 +102,8 @@ def make_master_dark(date, clobber=True):
 
     dark_files = []
     for i in np.arange(config['CalsWindow']+1):
-        this_day = dt.strftime((date_dto - i*one_day), '%Y%m%dUT')
-        dark_path = dark_root.replace('[YYYYMMDDUT]', this_day)
+        this_date = date_dto - i*one_day
+        dark_path = dt.strftime(this_date, dark_root)
         if os.path.exists(dark_path):
             image_table = sort.get_image_table(dark_path, 'Dark')
             new_files = [os.path.join(dark_path, fn) for fn in image_table['file']]
@@ -143,7 +148,7 @@ def make_master_dark(date, clobber=True):
         dark_image.header.set(exptimekw, 1.0)
         dark_images.append(dark_image)
 
-    master_dark = ccdproc.combine(dark_images, combine='median', )
+    master_dark = ccdproc.combine(dark_images, combine='median')
 
     # Update header
     master_dark.header.add_history(
