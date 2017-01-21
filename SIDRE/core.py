@@ -10,6 +10,9 @@ if sys.version_info.major == 2:
 elif sys.version_info.major == 3:
     import subprocess
 
+import matplotlib as mpl
+from matplotlib import pyplot as plt
+
 import astropy.units as u
 import astropy.coordinates as c
 from astropy.time import Time
@@ -175,7 +178,9 @@ class ScienceImage(object):
         self.date = dto.strftime('%Y%m%dUT')
         return self.date
 
-
+    #--------------------------------------------------------------------------
+    # Image Reduction Methods
+    #--------------------------------------------------------------------------
     def bias_correct(self):
         '''
         '''
@@ -251,7 +256,9 @@ class ScienceImage(object):
             self.metadata.set('FLATDSUM', value=master_flat.header['DATASUM'],
                               comment='DATASUM of master flat file')
 
-
+    #--------------------------------------------------------------------------
+    # WCS Methods
+    #--------------------------------------------------------------------------
     def get_header_pointing(self):
         '''
         Read the pointing coordinate from the header RA and DEC keywords
@@ -402,46 +409,44 @@ class ScienceImage(object):
         return sep
 
 
-    def get_UCAC4(self):
+    def test_astrometry(self, nradii=10, min_best_match=0.10, min_regional_match=0.50):
         '''
-        Use `astroquery` to get the UCAC4 catalog for this image from the
-        Vizier service.
         '''
-        self.log.info('Get UCAC4 stars in field of view')
-        if not self.header_pointing:
-            self.get_header_pointing()
-        if not self.wcs_pointing:
-            self.get_wcs_pointing()
-        if self.wcs_pointing:
-            pointing = self.wcs_pointing
-        elif self.header_pointing:
-            pointing = self.wcs_pointing
-        else:
-            return None
-        from astroquery.vizier import Vizier
-        from astropy.coordinates import Angle
+        assert self.assoc
+        pass_astrometry = True
+        ny, nx = self.ccd.shape
+        radius = np.sqrt((nx/2.)**2 + (ny/2.)**2)
+        radii = np.linspace(0, radius, nradii+1)
+        frac = np.zeros(nradii)
+        for i in range(nradii):
+            n_assoc = len(self.assoc[(self.assoc['r'] > radii[i])\
+                                   & (self.assoc['r'] <= radii[i+1])])
+            n_detected = len(self.extracted[(self.extracted['r'] > radii[i])\
+                                          & (self.extracted['r'] <= radii[i+1])])
+            frac[i] = float(n_assoc)/float(n_detected)
+        
+        AQM = frac/max(frac)
+        self.log.info('Astrometery verificaton metrics:')
+        best_match = max(frac)
+        self.log.info('  Best match = {:.1f} %'.format(best_match*100.))
+        if best_match < min_best_match:
+            pass_astrometry = False
+            self.log.warning('Astrometry test failed.')
+            self.log.warning('Best region absolute success rate < {:.1f} %'.format(min_best_match*100.))
+        
+        for i,val in enumerate(AQM):
+            self.log.info(' AQM ({:d}) = {:.2f}'.format(i, val))
+        if min(AQM) < min_regional_match:
+            pass_astrometry = False
+            self.log.warning('Astrometry test failed.')
+            self.log.warning('Worst region relative success rate < {:.1f} %'.format(min_regional_match*100.))
 
-        v = Vizier(columns=['_RAJ2000', '_DEJ2000','imag'],
-                   column_filters={"imag":">0"})
-        v.ROW_LIMIT = 1e5
-
-        fp = self.ccd.wcs.calc_footprint(axes=self.ccd.data.shape)
-        dra = fp[:,0].max() - fp[:,0].min()
-        ddec = fp[:,1].max() - fp[:,1].min()
-        radius = np.sqrt((dra*np.cos(fp[:,1].mean()*np.pi/180.))**2 + ddec**2)/2.
-        catalog = v.query_region(self.header_pointing, catalog='I/322A',
-                                 radius=Angle(radius, "deg") )[0]
-
-        if self.ccd.wcs:
-            x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'],
-                                              catalog['_DEJ2000'], 1)
-            w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
-            catalog = catalog[w]
-        self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
-        self.UCAC4 = catalog
-        return catalog
+        return pass_astrometry
 
 
+    #--------------------------------------------------------------------------
+    # Source Extractor Methods
+    #--------------------------------------------------------------------------
     def subtract_background(self):
         '''
         Use `sep.Background` to generate a background model and then
@@ -472,9 +477,15 @@ class ScienceImage(object):
         extract_config = self.config.get('Extract', {})
         thresh = extract_config.get('thresh', 5)
         minarea = extract_config.get('minarea', 5)
-        objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty.array,
-                              mask=self.ccd.mask,
-                              thresh=float(thresh), minarea=minarea)
+        if self.ccd.uncertainty:
+            objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty.array,
+                                  mask=self.ccd.mask,
+                                  thresh=float(thresh), minarea=minarea)
+        else:
+            objects = sep.extract(self.ccd.data,
+                                  mask=self.ccd.mask,
+                                  thresh=float(thresh), minarea=minarea)
+
         self.log.info('  Found {:d} sources'.format(len(objects)))
         self.extracted = Table(objects)
 
@@ -490,7 +501,7 @@ class ScienceImage(object):
         return self.extracted
 
 
-    def associate(self, input, magkey='imag'):
+    def associate(self, input, magkey='rmag'):
         '''
         Associate entries from the input stellar catalog (e.g. UCAC4) with
         the results from the `extract` method using a simple nearest neighbor
@@ -533,42 +544,21 @@ class ScienceImage(object):
         return input
 
 
-    def test_astrometry(self, nradii=10, min_best_match=0.10, min_regional_match=0.50):
+    #--------------------------------------------------------------------------
+    # Photometry Methods
+    #--------------------------------------------------------------------------
+    def measure_stars(self, catalog):
         '''
         '''
-        assert self.assoc
-        pass_astrometry = True
-        ny, nx = self.ccd.shape
-        radius = np.sqrt((nx/2.)**2 + (ny/2.)**2)
-        radii = np.linspace(0, radius, nradii+1)
-        frac = np.zeros(nradii)
-        for i in range(nradii):
-            n_assoc = len(self.assoc[(self.assoc['r'] > radii[i])\
-                                   & (self.assoc['r'] <= radii[i+1])])
-            n_detected = len(self.extracted[(self.extracted['r'] > radii[i])\
-                                          & (self.extracted['r'] <= radii[i+1])])
-            frac[i] = float(n_assoc)/float(n_detected)
         
-        AQM = frac/max(frac)
-        self.log.info('Astrometery verificaton metrics:')
-        best_match = max(frac)
-        self.log.info('  Best match = {:.1f} %'.format(best_match*100.))
-        if best_match < min_best_match:
-            pass_astrometry = False
-            self.log.warning('Astrometry test failed.')
-            self.log.warning('Best region absolute success rate < {:.1f} %'.format(min_best_match*100.))
-        
-        for i,val in enumerate(AQM):
-            self.log.info(' AQM ({:d}) = {:.2f}'.format(i, val))
-        if min(AQM) < min_regional_match:
-            pass_astrometry = False
-            self.log.warning('Astrometry test failed.')
-            self.log.warning('Worst region relative success rate < {:.1f} %'.format(min_regional_match*100.))
-
-        return pass_astrometry
 
 
-    def calculate_zero_point(self):
+
+
+
+
+
+    def calculate_zero_point(self, plot=None):
         '''
         Estimate the photometric zero point of the image using the associated
         catalog.  Find the mean difference between instrumental magnitude and
@@ -582,18 +572,75 @@ class ScienceImage(object):
         zp = np.mean(stats.sigmaclip(diffs, low=5.0, high=5.0)[0])
         print(zp, np.std(diffs), np.std(diffs)/np.sqrt(len(diffs)))
 
+        ## Make plots
+        if plot:
+            fig = plt.figure(figsize=(10,10), dpi=72)
+            plt.plot(self.assoc['mag'], diffs, 'bo')
+            plt.xlabel('Catalog Magnitude')
+            plt.ylabel('Zero Point')
+            plt.ylim([-31, -22])
+            plt.xlim([7, 16])
+            
+            plt.savefig(plot, dpi=72)
+
+
+
+
+    #--------------------------------------------------------------------------
+    # Other Methods
+    #--------------------------------------------------------------------------
+    def get_UCAC4(self):
+        '''
+        Use `astroquery` to get the UCAC4 catalog for this image from the
+        Vizier service.
+        '''
+        self.log.info('Get UCAC4 stars in field of view')
+        if not self.header_pointing:
+            self.get_header_pointing()
+        if not self.wcs_pointing:
+            self.get_wcs_pointing()
+        if self.wcs_pointing:
+            pointing = self.wcs_pointing
+        elif self.header_pointing:
+            pointing = self.wcs_pointing
+        else:
+            return None
+        from astroquery.vizier import Vizier
+        from astropy.coordinates import Angle
+
+        v = Vizier(columns=['_RAJ2000', '_DEJ2000', 'rmag'],
+                   column_filters={"rmag":">0"})
+        v.ROW_LIMIT = 1e5
+
+        fp = self.ccd.wcs.calc_footprint(axes=self.ccd.data.shape)
+        dra = fp[:,0].max() - fp[:,0].min()
+        ddec = fp[:,1].max() - fp[:,1].min()
+        radius = np.sqrt((dra*np.cos(fp[:,1].mean()*np.pi/180.))**2 + ddec**2)/2.
+        catalog = v.query_region(self.header_pointing, catalog='I/322A',
+                                 radius=Angle(radius, "deg") )[0]
+
+        if self.ccd.wcs:
+            x, y = self.ccd.wcs.all_world2pix(catalog['_RAJ2000'],
+                                              catalog['_DEJ2000'], 1)
+            w = (x > 0) & (x < 4096) & (y > 0) & (y < 4096)
+            catalog = catalog[w]
+        self.log.info('  Found {:d} catalog stars'.format(len(catalog)))
+        catalog.add_column(Column(catalog['_RAJ2000'], name='RA'))
+        catalog.add_column(Column(catalog['_DEJ2000'], name='DEC'))
+        self.UCAC4 = catalog
+        return catalog
+
 
     def render_jpeg(self, jpegfilename=None, binning=1, radius=6,
                     overplot_UCAC4=False, overplot_extracted=False,
-                    overplot_assoc=False, overplot_pointing=False):
+                    overplot_assoc=False, overplot_pointing=False,
+                    overplot_catalog=None):
         '''
         Render a jpeg of the image with optional overlays.
         '''
         self.log.info('Render JPEG of image to {}'.format(jpegfilename))
         if not jpegfilename:
             jpegfilename = '{}.jpg'.format(self.fileroot)
-        import matplotlib as mpl
-        from matplotlib import pyplot as plt
         vmin = np.percentile(self.ccd.data, 0.5)
         vmax = np.percentile(self.ccd.data, 99.0)
         dpi=72
@@ -608,6 +655,14 @@ class ScienceImage(object):
         plt.imshow(mdata, cmap=palette, vmin=vmin, vmax=vmax)
         plt.xticks([])
         plt.yticks([])
+
+        if overplot_catalog:
+            self.log.info('  Overlaying catalog stars')
+            x, y = self.ccd.wcs.all_world2pix(overplot_catalog['RA'],
+                                              overplot_catalog['DEC'], 1)
+            for xy in zip(x, y):
+                c = plt.Circle(xy, radius=radius, edgecolor='b', facecolor='none')
+                ax.add_artist(c)
 
         if overplot_UCAC4:
             self.log.info('  Overlaying UCAC4 catalog stars')
