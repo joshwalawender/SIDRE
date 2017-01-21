@@ -21,9 +21,9 @@ MasterDarkRootName: 'MasterDark_'
 MasterFlatRootName: 'MasterFlat_'
 MasterShutterMapRootName: 'ShutterMap_'
 
-BiasPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
-DarkPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/Calibration'
-FlatPath: '/Volumes/DataCopy/V5/Images/[YYYYMMDDUT]/AutoFlat'
+BiasPath: '/Volumes/DataCopy/V5/Images/%Y%m%dUT/Calibration'
+DarkPath: '/Volumes/DataCopy/V5/Images/%Y%m%dUT/Calibration'
+FlatPath: '/Volumes/DataCopy/V5/Images/%Y%m%dUT/AutoFlat'
 CalsWindow: 0   # Size of window (in days) prior to an image's date for which
                 # biases and darks are considered relevant to that image.
                 # A value of 0 will use only files from the same UT date.
