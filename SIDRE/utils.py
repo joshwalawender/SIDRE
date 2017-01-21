@@ -4,9 +4,11 @@ from datetime import datetime as dt
 from glob import glob
 
 import astropy.units as u
+from astropy import stats
 import ccdproc
 
 from .config import get_config
+
 
 def get_master(date, type='Bias'):
     '''
@@ -55,3 +57,30 @@ def get_master_shutter_map(date):
         shutter_map = ccdproc.fits_ccddata_reader(os.path.join(mp, mfile), verify=True)
         shutter_map.header.set('FILENAME', value=mfile, comment='File name')
     return shutter_map
+
+
+def mode(data):
+    '''
+    Return mode of image.  Assumes int values (ADU), so uses binsize of one.
+    '''
+    bmin = np.floor(min(data.ravel())) - 1./2.
+    bmax = np.ceil(max(data.ravel())) + 1./2.
+    bins = np.arange(bmin,bmax,1)
+    hist, bins = np.histogram(data.ravel(), bins=bins)
+    centers = (bins[:-1] + bins[1:]) / 2
+    w = np.argmax(hist)
+    mode = int(centers[w])
+    return mode
+
+
+def imstat(file, ext=0, sigma=5, iters=1):
+    '''
+    '''
+    assert os.path.exists(file)
+    with fits.open(file, 'readonly') as hdul:
+        mean, median, stddev = stats.sigma_clipped_stats(hdul[ext].data,
+                                     sigma=sigma,
+                                     iters=iters)
+        mode = get_mode(hdul[ext].data)
+        print(mean, median, mode, stddev)
+
