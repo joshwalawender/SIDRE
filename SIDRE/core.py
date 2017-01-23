@@ -19,10 +19,13 @@ from astropy.time import Time
 from astropy.io import fits
 from astropy import wcs
 from astropy.table import Table, Column
+from astropy import stats
 import ccdproc
 import sep
+import photutils as phot
 
 import warnings
+
 from astropy.utils.exceptions import AstropyWarning
 warnings.simplefilter('ignore', category=AstropyWarning)
 
@@ -92,6 +95,7 @@ class ScienceImage(object):
         self.header_pointing = None
         self.wcs_pointing = None
         self.altaz = None
+        self.source_mask = None
         try:
             lat = c.Latitude(self.config.get('Latitude') * u.degree)
             lon = c.Longitude(self.config.get('Longitude') * u.degree)
@@ -462,7 +466,7 @@ class ScienceImage(object):
     #--------------------------------------------------------------------------
     # Source Extractor Methods
     #--------------------------------------------------------------------------
-    def subtract_background(self):
+    def sx_subtract_background(self):
         '''
         Use `sep.Background` to generate a background model and then
         subtract it from the image.
@@ -562,12 +566,55 @@ class ScienceImage(object):
     #--------------------------------------------------------------------------
     # Photometry Methods
     #--------------------------------------------------------------------------
-    def measure_stars(self, catalog):
-        '''
-        '''
-        
+    def make_source_mask(self, snr=5, npixels=5, **kwargs):
+        self.log.info('Masking sources in image')
+        self.source_mask = phot.make_source_mask(self.ccd.data, snr, npixels, **kwargs)
+        return self.source_mask
 
 
+    def subtract_background(self, box_size=128):
+        '''
+        '''
+        self.log.info('Subtracting Background')
+        if self.source_mask is not None and self.ccd.mask is not None:
+            mask = (self.source_mask | self.ccd.mask)
+        elif self.source_mask is not None:
+            mask = self.source_mask
+        elif self.ccd.mask is not None:
+            mask = self.ccd.mask
+        else:
+            mask = None
+        bkg = phot.Background2D(self.ccd.data, box_size=box_size, mask=mask,
+                                sigma_clip=phot.SigmaClip())
+        self.back = bkg
+        self.ccd.data -= bkg.background
+        self.ccd.header.add_history('Background subtracted using photutils')
+
+
+    def find_stars(self):
+        '''
+        '''
+        self.log.info('Finding stars in image')
+        mean, median, std = stats.sigma_clipped_stats(self.ccd.data, sigma=3.0, iters=5)
+        star_finder = phot.DAOStarFinder(fwhm=2.0, threshold=5.*std)
+        assert self.back
+        sources = star_finder(self.ccd.data)
+        return sources
+
+
+    def measure_stars(self, x, y, radius=5):
+        '''
+        Iterate through a set of catalog stars and perform aperture photometry
+        on each star.
+        '''
+        assert self.back
+        self.log.info('Performing circular aperture photometry (r={:.1f} pix) on {:d} stars'.format(
+                      radius, len(x)))
+        positions = zip(x, y)
+        capertures = phot.CircularAperture(positions, r=radius)
+        phot_table = phot.aperture_photometry(self.ccd.data, capertures,
+                          error=self.ccd.uncertainty.array)
+        return phot_table
 
 
 
@@ -583,9 +630,8 @@ class ScienceImage(object):
             return None
         instmag = -2.512*np.log10(self.assoc['flux'])
         diffs = instmag - self.assoc['mag']
-        from scipy import stats
-        zp = np.mean(stats.sigmaclip(diffs, low=5.0, high=5.0)[0])
-        print(zp, np.std(diffs), np.std(diffs)/np.sqrt(len(diffs)))
+        zp, zp_med, zp_std = stats.sigma_clipped_stats(diffs, sigma=5.0, iters=3)
+        print(zp, zp_med, zp_std, zp_std/len(diffs)**0.5)
 
         ## Make plots
         if plot:
