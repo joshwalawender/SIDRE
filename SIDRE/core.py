@@ -205,6 +205,21 @@ class ScienceImage(object):
         self.ccd = ccdproc.gain_correct(self.ccd, self.gain.value)
 
 
+    def create_deviation(self):
+        '''
+        Wrapper around `ccdproc.create_deviation` function.
+        '''
+        self.log.info('Estimating Uncertainty in Image')
+        if self.ccd.unit == u.electron:
+            self.ccd = ccdproc.create_deviation(self.ccd, #gain=self.gain.value,
+                               readnoise=self.readnoise.value)
+        elif self.ccd.unit == u.adu:
+            self.ccd = ccdproc.create_deviation(self.ccd, gain=self.gain.value,
+                               readnoise=self.readnoise.value)
+        else:
+            self.log.error('Coud not estimate uncertainty')
+
+
     def dark_correct(self):
         '''
         Wrapper around `ccdproc.subtract_dark` function.
