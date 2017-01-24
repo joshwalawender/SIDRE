@@ -607,18 +607,24 @@ class ScienceImage(object):
         return sources
 
 
-    def measure_stars(self, x, y, radius=5):
+    def aperture_photometry(self, positions, radius=5*u.pix):
         '''
         Iterate through a set of catalog stars and perform aperture photometry
         on each star.
         '''
         assert self.back
+        if type(radius) != u.Quantity:
+            radius = radius * u.pix
+        if type(positions[0]) == tuple:
+            apertures = phot.CircularAperture(positions, r=radius.to(u.pix).value)
+        elif type(positions[0]) == c.SkyCoord:
+            apertures = phot.SkyCircularAperture(positions, r=radius)
+        else:
+            self.log.warning('Could not determine input type')
         self.log.info('Performing circular aperture photometry (r={:.1f} pix) on {:d} stars'.format(
-                      radius, len(x)))
-        positions = zip(x, y)
-        capertures = phot.CircularAperture(positions, r=radius)
-        phot_table = phot.aperture_photometry(self.ccd.data, capertures,
-                          error=self.ccd.uncertainty.array)
+                      radius, apertures.positions.shape[0]))
+        phot_table = phot.aperture_photometry(self.ccd.to_hdu(), apertures)#,
+#                           error=self.ccd.uncertainty.array)
         return phot_table
 
 
