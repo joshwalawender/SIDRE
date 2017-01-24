@@ -326,15 +326,20 @@ class ScienceImage(object):
         return self.header_pointing
 
 
-    def solve_astrometry(self, downsample=2, SIPorder=4):
+    def solve_astrometry(self, downsample=1, SIPorder=4, nobackground=True):
         '''
         Use a local install of astrometry.net to solve the image
         WCS and populate the `ccd.wcs` and `ccd.header` with the
         updated WCS info.
         '''
+        if sys.version_info.major != 2:
+            return False  ## Astrometry.net requires python2
+
         solvefield_args = self.config.get('SolveFieldArgs', [])
         solvefield_args.extend(['-z', '{:d}'.format(downsample)])
         solvefield_args.extend(['-t', '{:d}'.format(SIPorder)])
+        if nobackground:
+            solvefield_args.append('--no-background-subtraction')
         
         # Create temporary directory
         tdir = tempfile.mkdtemp()
