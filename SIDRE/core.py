@@ -20,6 +20,7 @@ from astropy.io import fits
 from astropy import wcs
 from astropy.table import Table, Column
 from astropy import stats
+from astropy import __version__ as astropyVersion
 import ccdproc
 import sep
 import photutils as phot
@@ -89,7 +90,8 @@ class ScienceImage(object):
         self.datefmt = self.config.get('DATEFMT', '%Y-%m-%dT%H:%M:%S')
         self.obstime = None
         self.date = self.get_date()
-        self.add_logger(verbose=verbose)
+        self.add_logger(verbose=verbose, logfile=logfile)
+        self.log_versions()
         self.log.info('Opened File: {}'.format(self.filename))
 
         self.header_pointing = None
@@ -169,6 +171,17 @@ class ScienceImage(object):
                 LogConsoleHandler.setLevel(logging.INFO)
             LogConsoleHandler.setFormatter(LogFormat)
             self.log.addHandler(LogConsoleHandler)
+
+
+    def log_versions(self):
+        self.log.debug('python version = {}.{}.{}'.format(sys.version_info.major,
+                                                sys.version_info.minor,
+                                                sys.version_info.micro))
+        self.log.debug(sys.version)
+        self.log.debug('astropy version = {}'.format(astropyVersion))
+        self.log.debug('ccdproc version = {}'.format(ccdproc.__version__))
+        self.log.debug('photutils version = {}'.format(phot.__version__))
+        self.log.debug('sep version = {}'.format(sep.__version__))
 
 
     def get_date(self):
@@ -590,7 +603,7 @@ class ScienceImage(object):
         else:
             mask = None
         bkg = phot.Background2D(self.ccd.data, box_size=box_size, mask=mask,
-                                sigma_clip=phot.SigmaClip())
+                                sigma_clip=stats.SigmaClip())
         self.back = bkg
         self.ccd.data -= bkg.background
         self.ccd.header.add_history('Background subtracted using photutils')
