@@ -454,8 +454,10 @@ class ScienceImage(object):
             self.get_wcs_pointing()
         if self.header_pointing and self.wcs_pointing:
             sep = self.header_pointing.separation(self.wcs_pointing)
-        self.log.info('Pointing error = {:.1f}'.format(sep.to(u.arcmin)))
-        return sep
+            self.log.info('Pointing error = {:.1f}'.format(sep.to(u.arcmin)))
+            return sep
+        else:
+            return None
 
 
     def test_astrometry(self, nradii=10, min_best_match=0.10, min_regional_match=0.50):
