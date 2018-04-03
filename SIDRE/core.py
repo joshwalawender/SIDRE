@@ -24,6 +24,9 @@ from astropy import __version__ as astropyVersion
 import ccdproc
 import sep
 import photutils as phot
+from astroquery import __version__ as astroqueryVersion
+from astroquery.vizier import Vizier
+from astropy.coordinates import Angle
 
 import warnings
 
@@ -88,7 +91,11 @@ class ScienceImage(object):
         self.config = get_config()
         self.datekw = self.config.get('DATE-OBS', 'DATE-OBS')
         self.datefmt = self.config.get('DATEFMT', '%Y-%m-%dT%H:%M:%S')
-        self.obstime = None
+        try:
+            self.obstime = dt.strptime(self.ccd.header.get('DATE-OBS'), '%Y-%m-%dT%H:%M:%S')
+        except:
+            self.obstime = None
+
         self.date = self.get_date()
         self.add_logger(verbose=verbose, logfile=logfile)
         self.log_versions()
@@ -99,14 +106,14 @@ class ScienceImage(object):
         self.altaz = None
         self.source_mask = None
         try:
-            lat = c.Latitude(self.config.get('Latitude') * u.degree)
-            lon = c.Longitude(self.config.get('Longitude') * u.degree)
-            height = self.config.get('Elevation') * u.meter
+            lat = c.Latitude(self.ccd.header.get('SITELAT'), unit=u.degree)
+            lon = c.Longitude(self.ccd.header.get('SITELONG'), unit=u.degree)
+            height = self.ccd.header.get('ALT-OBS') * u.meter
             self.loc = c.EarthLocation(lon, lat, height)
             self.altazframe = c.AltAz(location=self.loc, obstime=self.obstime,
-                              temperature=self.config.get('Temperature')*u.Celsius,
-                              pressure=self.config.get('Pressure')/1000.*u.bar)
-#             self.moon = c.get_moon(self.obstime, location=self.loc)
+                              temperature=self.ccd.header.get('AMBTEMP', 0)*u.Celsius,
+                              pressure=self.config.get('Pressure', 700)/1000.*u.bar)
+            self.moon = c.get_moon(Time(self.obstime), location=self.loc)
         except:
             self.loc = None
             self.altazframe = None
@@ -131,6 +138,9 @@ class ScienceImage(object):
             self.readnoise.value_from(self.ccd.header)
         except KeyError:
             self.readnoise.value = self.config.get('RN')
+
+        self.FWHM_pix = None
+        self.ellipticity = None
 
 
     def __del__(self):
@@ -182,6 +192,8 @@ class ScienceImage(object):
         self.log.debug('ccdproc version = {}'.format(ccdproc.__version__))
         self.log.debug('photutils version = {}'.format(phot.__version__))
         self.log.debug('sep version = {}'.format(sep.__version__))
+        self.log.debug('numpy version = {}'.format(np.__version__))
+        self.log.debug('astroquery version = {}'.format(astroqueryVersion))
 
 
     def get_date(self):
@@ -345,8 +357,8 @@ class ScienceImage(object):
         WCS and populate the `ccd.wcs` and `ccd.header` with the
         updated WCS info.
         '''
-        if sys.version_info.major != 2:
-            return False  ## Astrometry.net requires python2
+#         if sys.version_info.major != 2:
+#             return False  ## Astrometry.net requires python2
 
         solvefield_args = self.config.get('SolveFieldArgs', [])
         solvefield_args.extend(['-z', '{:d}'.format(downsample)])
@@ -535,7 +547,26 @@ class ScienceImage(object):
         r = np.sqrt((self.extracted['x']-nx/2.)**2 + (self.extracted['y']-ny/2.)**2)
         self.extracted.add_column(Column(data=r.data, name='r', dtype=np.float))
 
+        coef = 2*np.sqrt(2*np.log(2))
+        fwhm = np.sqrt((coef*self.extracted['a'])**2 + (coef*self.extracted['b'])**2)
+        self.extracted.add_column(Column(data=fwhm.data, name='FWHM', dtype=np.float))
+
+        ellipticities = self.extracted['a']/self.extracted['b']
+        self.extracted.add_column(Column(data=ellipticities.data, name='ellipticity', dtype=np.float))
+
         return self.extracted
+
+
+    def determine_FWHM(self, mina=1, minb=1, remove_flagged=True):
+        assert self.extracted is not None
+        self.log.info('Determining typical FWHM')        
+        filtered = (self.extracted['a'] < mina) | (self.extracted['b'] < minb) | (self.extracted['flag'] > 0)
+        self.log.info(f'  Removing {np.sum(filtered):d} '\
+                      f'out of {len(filtered):d} extractions from calculation')
+        self.FWHM_pix = np.median(self.extracted['FWHM'][~filtered])
+        self.ellipticity = np.median(self.extracted['ellipticity'][~filtered])
+        self.log.info(f'  FWHM = {self.FWHM_pix:.1f} pix')
+        self.log.info(f'  ellipticity = {self.ellipticity:.1f}')
 
 
     def associate(self, input, magkey='rmag'):
@@ -690,8 +721,6 @@ class ScienceImage(object):
             pointing = self.wcs_pointing
         else:
             return None
-        from astroquery.vizier import Vizier
-        from astropy.coordinates import Angle
 
         v = Vizier(columns=['_RAJ2000', '_DEJ2000', 'rmag'],
                    column_filters={"rmag":">0"})
