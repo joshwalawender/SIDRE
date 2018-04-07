@@ -106,8 +106,14 @@ class ScienceImage(object):
         self.altaz = None
         self.source_mask = None
         try:
-            lat = c.Latitude(self.ccd.header.get('SITELAT'), unit=u.degree)
-            lon = c.Longitude(self.ccd.header.get('SITELONG'), unit=u.degree)
+            try:
+                lat = c.Latitude(self.ccd.header.get('SITELAT'), unit=u.degree)
+            except:
+                lat = c.Latitude(self.ccd.header.get('LAT-OBS'), unit=u.degree)
+            try:
+                lon = c.Longitude(self.ccd.header.get('SITELONG'), unit=u.degree)
+            except:
+                lon = c.Longitude(self.ccd.header.get('LONG-OBS'), unit=u.degree)
             height = self.ccd.header.get('ALT-OBS') * u.meter
             self.loc = c.EarthLocation(lon, lat, height)
             self.altazframe = c.AltAz(location=self.loc, obstime=self.obstime,
@@ -526,8 +532,8 @@ class ScienceImage(object):
         '''
         self.log.info('Extracting sources')
         extract_config = self.config.get('Extract', {})
-        thresh = extract_config.get('thresh', 5)
-        minarea = extract_config.get('minarea', 5)
+        thresh = extract_config.get('thresh', 9)
+        minarea = extract_config.get('minarea', 7)
         if self.ccd.uncertainty:
             objects = sep.extract(self.ccd.data, err=self.ccd.uncertainty.array,
                                   mask=self.ccd.mask,
