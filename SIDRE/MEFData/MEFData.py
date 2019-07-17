@@ -177,7 +177,7 @@ def get_hdu_type(hdu):
 ##-------------------------------------------------------------------------
 ## MEFData Reader
 ##-------------------------------------------------------------------------
-def fits_keckdata_reader(file, defaultunit='adu', datatype=MEFData):
+def fits_MEFdata_reader(file, defaultunit='adu', datatype=MEFData):
     """A reader for MEFData objects.
     
     Currently this is a separate function, but should probably be
